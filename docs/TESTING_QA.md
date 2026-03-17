@@ -1,6 +1,6 @@
 # TESTING_QA.md
 # SnapVault — Testing & QA Plan
-# Version: 3.0.0 | Last Updated: 2026-03-16
+# Version: 3.1.0 | Last Updated: 2026-03-17
 
 ---
 
@@ -8,6 +8,7 @@
 
 | Gate | Target | Test type |
 |------|--------|-----------|
+| Service worker cold-start | < 1200 ms median | Playwright perf-budget |
 | Popup load | < 150 ms median | Playwright perf-budget |
 | Visible capture → export | < 1 s median (typical pages) | Playwright perf-budget |
 | Full-page: no silent corruption | 100% correctness | Playwright golden-page |
@@ -88,13 +89,29 @@ Loads the full built extension in a real browser context.
 | HiDPI info banner (Tier 1) | DPR=2 viewport → non-blocking banner shown; export proceeds at device pixels |
 | True 1× export — Pro gated | DPR=2 + Pro license → css1x export has half physical dimensions; same spec on Tier 1 → banner, no normalization |
 
-#### Firefox extension harness (`npm run test:e2e:extension:firefox`)
+#### Dedicated startup/perf runs
 
-Same test suite as Chromium with the following differences:
-- `chrome.offscreen` is not used; background page handles heavy work.
-  Assert background page message handler is invoked instead.
-- Verify `offscreen` permission is NOT in Firefox manifest.
-- All other capture, export, feasibility, and privacy tests must pass identically.
+- `npm run test:perf:extension:chromium`
+- `npm run test:perf:extension:edge`
+- `npm run test:perf:extension`
+
+These runs execute only `e2e/performance.spec.ts`, which now includes:
+- service worker cold-start median budget
+- popup `DOMContentLoaded` median budget
+- visible capture → download median budget
+
+#### Edge extension harness (`npm run test:e2e:extension:edge`)
+
+Same Playwright suite as Chromium, but loaded from `dist/edge/` and launched through the
+real Edge channel.
+
+#### Firefox package/runtime contract (`npm run test:firefox:package`)
+
+Firefox is covered by:
+- `npm run build:firefox`
+- `node scripts/validate-build-artifacts.mjs firefox`
+- `npm run lint:firefox:baseline`
+- Vitest coverage for `background-page` and `offscreen-adapter` Firefox paths
 
 ---
 
@@ -143,7 +160,7 @@ The offscreen document cannot be introspected directly by Playwright. Test strat
 | Test | How |
 |------|-----|
 | `env.allowRemoteModels = false` is set | Unit: inspect Transformers.js env config after import |
-| No network call during inference | Playwright network intercept: zero requests during `RUN_AUTO_REDACTION` |
+| No network call during inference | Playwright network intercept: zero requests during `RUN_ML_REDACTION` |
 | DOM-text detects email | Unit: synthetic DOM with `user@example.com` → annotation.type = 'email' |
 | DOM-text detects CC (Luhn) | Unit: `4532015112830366` passes Luhn → annotation |
 | ONNX model loads from local URL | Unit: mock `chrome.runtime.getURL` → assert model path is local |
@@ -172,9 +189,12 @@ The offscreen document cannot be introspected directly by Playwright. Test strat
 |-----|---------|
 | `typecheck + unit tests` | Every PR (all browsers) |
 | `build:chrome` | Every PR |
+| `build:edge` | Every PR |
 | `build:firefox` | Every PR |
 | `e2e:extension:chromium` | Every PR |
-| `e2e:extension:firefox` | Every PR |
+| `e2e:extension:edge` | Every PR |
+| `test:firefox:package` | Every PR |
 | `perf-budget` | Every PR (fail on regression) |
 | `security-audit` (pixel payload static) | Every PR |
 | `ml-recall` (reference image set) | Weekly + before release |
+Firefox release validation is intentionally stricter than a raw `web-ext lint` pass. Run `npm run test:firefox:package`; it packages Firefox, validates artifacts, and then enforces the approved warning baseline documented in [FIREFOX_LINT_BASELINE.md](/E:/SNAPV/docs/FIREFOX_LINT_BASELINE.md).

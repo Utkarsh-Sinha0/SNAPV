@@ -4,7 +4,6 @@ import { createServer, type Server } from 'node:http';
 import path from 'node:path';
 import os from 'node:os';
 
-const EXTENSION_PATH = path.join(process.cwd(), 'dist', 'chrome');
 const TARGET_TITLE = 'SnapVault Capture Target';
 const VALID_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4AWL6z8DwH4SZGKAAAAAA//8qMqaOAAAABklEQVQDADYSBAFv606fAAAAAElFTkSuQmCC';
@@ -67,16 +66,22 @@ export const test = base.extend<ExtensionFixtures>({
     const projectUse = testInfo.project.use as {
       viewport?: { width: number; height: number };
       deviceScaleFactor?: number;
+      channel?: 'chromium' | 'msedge';
     };
+    const extensionPath = path.join(
+      process.cwd(),
+      'dist',
+      testInfo.project.name.includes('edge') ? 'edge' : 'chrome',
+    );
     const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'snapvault-pw-'));
     const context = await chromium.launchPersistentContext(userDataDir, {
-      channel: 'chromium',
+      channel: projectUse.channel ?? 'chromium',
       headless: true,
       viewport: projectUse.viewport ?? { width: 1280, height: 720 },
       deviceScaleFactor: projectUse.deviceScaleFactor ?? 1,
       args: [
-        `--disable-extensions-except=${EXTENSION_PATH}`,
-        `--load-extension=${EXTENSION_PATH}`,
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
       ],
     });
 

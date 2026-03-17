@@ -1,0 +1,58 @@
+name: Browser Matrix
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  quality:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run typecheck
+      - run: npm run test:run
+      - run: npm run test:audit:pixel-payload
+
+  package:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        browser: [chrome, firefox, edge]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:${{ matrix.browser }}
+      - run: npm run zip:${{ matrix.browser }}
+      - run: node scripts/validate-build-artifacts.mjs ${{ matrix.browser }}
+      - if: matrix.browser == 'firefox'
+        run: npm run lint:firefox:baseline
+
+  extension-e2e:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [chromium, edge]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium
+      - if: matrix.target == 'chromium'
+        run: npm run test:e2e:extension:chromium
+      - if: matrix.target == 'edge'
+        run: npm run test:e2e:extension:edge

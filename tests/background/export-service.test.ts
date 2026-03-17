@@ -8,7 +8,13 @@ vi.mock('../../src/background/capture-service', () => ({
   handleGetCaptureDataUrl: vi.fn(),
 }));
 
+vi.mock('../../src/shared/browser', () => ({
+  isFirefox: vi.fn(() => false),
+}));
+
 import {
+  __resetExportArtifactCacheForTests,
+  createDownloadTarget,
   handleApplyExportSpec,
   handleCheckFeasibility,
   handleExportClipboard,
@@ -17,6 +23,7 @@ import {
   resolveFilenameTemplate,
 } from '../../src/background/export-service';
 import { handleGetCaptureDataUrl } from '../../src/background/capture-service';
+import { isFirefox } from '../../src/shared/browser';
 import { sendToHeavyWorker } from '../../src/shared/offscreen-adapter';
 import type { CaptureMetadata, ExportSpec } from '../../src/shared/types';
 
@@ -71,6 +78,7 @@ function createApis() {
 describe('export-service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetExportArtifactCacheForTests();
     vi.mocked(handleGetCaptureDataUrl).mockResolvedValue({
       dataUrl: 'data:image/png;base64,capture',
       metadata: baseMetadata,
@@ -79,6 +87,7 @@ describe('export-service', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('applies export specs by loading the capture and forwarding the spec', async () => {
@@ -133,6 +142,35 @@ describe('export-service', () => {
     });
   });
 
+  it('reuses the cached artifact from APPLY_EXPORT_SPEC when exporting downloads', async () => {
+    const { apis } = createApis();
+    vi.mocked(sendToHeavyWorker).mockResolvedValue({
+      type: 'OFFSCREEN_RESULT',
+      id: 'cache-1',
+      ok: true,
+      data: {
+        dataUrl: 'data:image/png;base64,encoded',
+        mimeType: 'image/png',
+      },
+    });
+
+    await handleApplyExportSpec(
+      { captureId: 'capture-1', spec: baseSpec },
+      apis,
+    );
+    await handleExportDownload(
+      { captureId: 'capture-1', spec: baseSpec },
+      apis,
+      new Date('2026-03-16T07:08:09Z'),
+    );
+
+    expect(sendToHeavyWorker).toHaveBeenCalledTimes(1);
+    expect(apis.downloads.download).toHaveBeenCalledWith({
+      url: 'data:image/png;base64,encoded',
+      filename: 'screenshot-2026-03-16-07-08-09.png',
+    });
+  });
+
   it('resolves filename templates', () => {
     const filename = resolveFilenameTemplate(
       'screenshot-{date}-{time}.{format}',
@@ -141,6 +179,28 @@ describe('export-service', () => {
     );
 
     expect(filename).toBe('screenshot-2026-03-16-07-08-09.png');
+  });
+
+  it('creates blob download targets on Firefox', async () => {
+    vi.useFakeTimers();
+    vi.mocked(isFirefox).mockReturnValue(true);
+    const createObjectURL = vi.fn(() => 'blob:firefox-download');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      blob: async () => new Blob(['A'], { type: 'image/png' }),
+    })));
+    vi.stubGlobal('URL', {
+      createObjectURL,
+      revokeObjectURL,
+    });
+
+    const target = await createDownloadTarget('data:image/png;base64,QQ==');
+
+    expect(target.url).toBe('blob:firefox-download');
+    target.cleanup?.();
+    vi.runAllTimers();
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:firefox-download');
   });
 
   it('appends the format extension when the template omits it', () => {

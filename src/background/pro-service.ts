@@ -1,13 +1,15 @@
 import {
   generateInstallationId,
+  ensureTabContentScript,
   handleCaptureRegion,
   handleGetCaptureDataUrl,
 } from './capture-service';
-import { resolveFilenameTemplate } from './export-service';
+import { createDownloadTarget, resolveFilenameTemplate } from './export-service';
 import { sendToHeavyWorker } from '../shared/offscreen-adapter';
 import { buildCleanCaptureCSS } from '../shared/clean-capture';
 import { assertNoPixelPayload } from '../shared/assert-no-pixel-payload';
 import { assertProLicense, ProRequiredError } from '../shared/pro';
+import { getWebExtensionNamespace } from '../shared/webextension-namespace';
 import type {
   CaptureMetadata,
   ExportArtifact,
@@ -95,22 +97,20 @@ const DEFAULT_LICENSING_BASE_URL = 'http://127.0.0.1:8787';
 const LICENSE_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function getApis(): ProApis {
-  const chromeLike = (globalThis as unknown as {
-    chrome: {
-      runtime: RuntimeLike;
-      storage: { local: StorageAreaLike };
-      tabs: TabsLike;
-      downloads: DownloadsLike;
-      scripting: ScriptingLike;
-    };
-  }).chrome;
+  const extensionApi = getWebExtensionNamespace<{
+    runtime: RuntimeLike;
+    storage: { local: StorageAreaLike };
+    tabs: TabsLike;
+    downloads: DownloadsLike;
+    scripting: ScriptingLike;
+  }>();
 
   return {
-    runtime: chromeLike.runtime,
-    storage: chromeLike.storage.local,
-    tabs: chromeLike.tabs,
-    downloads: chromeLike.downloads,
-    scripting: chromeLike.scripting,
+    runtime: extensionApi.runtime,
+    storage: extensionApi.storage.local,
+    tabs: extensionApi.tabs,
+    downloads: extensionApi.downloads,
+    scripting: extensionApi.scripting,
   };
 }
 
@@ -299,6 +299,7 @@ export async function handleToggleCleanCapture(
     'cleanCapture.selectors': validatedSelectors,
   });
 
+  await ensureTabContentScript(payload.tabId, apis);
   await apis.tabs.sendMessage(payload.tabId, {
     type: 'APPLY_CLEAN_CAPTURE',
     css:
@@ -318,6 +319,7 @@ export async function handlePickDomElement(
   apis: ProApis = getApis(),
 ): Promise<{ ok: true }> {
   await requireProLicense(apis.storage);
+  await ensureTabContentScript(payload.tabId, apis);
   await apis.tabs.sendMessage(payload.tabId, {
     type: 'PICK_DOM_ELEMENT',
     tabId: payload.tabId,
@@ -331,7 +333,7 @@ export async function handlePickDomElementResult(
   apis: ProApis = getApis(),
 ): Promise<{ captureId: string }> {
   await requireProLicense(apis.storage);
-  return handleCaptureRegion(
+  const result = await handleCaptureRegion(
     {
       tabId: payload.tabId,
       rect: requireRect(payload.rect),
@@ -339,6 +341,12 @@ export async function handlePickDomElementResult(
     },
     apis,
   );
+
+  if (!result.captureId) {
+    throw new Error('Region capture did not return a capture id');
+  }
+
+  return { captureId: result.captureId };
 }
 
 export async function handleRunDomRedaction(
@@ -346,6 +354,7 @@ export async function handleRunDomRedaction(
   apis: ProApis = getApis(),
 ): Promise<{ annotations: RedactAnnotation[] }> {
   await requireProLicense(apis.storage);
+  await ensureTabContentScript(payload.tabId, apis);
   return apis.tabs.sendMessage(payload.tabId, {
     type: 'RUN_DOM_REDACTION',
   }) as Promise<{ annotations: RedactAnnotation[] }>;
@@ -518,11 +527,16 @@ export async function handleExportCaptureBoard(
   });
   const artifact = requireArtifact(encoded);
   const filename = resolveFilenameTemplate(payload.spec.filenameTemplate, payload.spec.format, now);
+  const downloadTarget = await createDownloadTarget(artifact.dataUrl);
 
-  await apis.downloads.download({
-    url: artifact.dataUrl,
-    filename,
-  });
+  try {
+    await apis.downloads.download({
+      url: downloadTarget.url,
+      filename,
+    });
+  } finally {
+    downloadTarget.cleanup?.();
+  }
 
   return { filename };
 }

@@ -1,4 +1,6 @@
-import { processHeavyWorkerMessage } from '../offscreen/processor';
+import { runMlRedaction } from '../offscreen/ml-redaction';
+import { buildPdf } from '../shared/pdf';
+import { processHeavyWorkerMessageWithDeps } from '../shared/heavy-worker-service';
 import type { HeavyWorkerRequest, HeavyWorkerResult } from '../shared/types';
 
 type RuntimeLike = {
@@ -23,9 +25,12 @@ function getRuntime(): RuntimeLike {
 export async function handleBackgroundPageHeavyMessage(
   message: HeavyWorkerRequest,
 ): Promise<HeavyWorkerResult> {
-  return processHeavyWorkerMessage(message, {
+  return processHeavyWorkerMessageWithDeps(message, {
     remember: () => undefined,
     clear: () => undefined,
+  }, {
+    buildPdf,
+    runMlRedaction,
   });
 }
 

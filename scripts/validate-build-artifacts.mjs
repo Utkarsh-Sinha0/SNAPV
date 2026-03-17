@@ -1,10 +1,21 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 const REQUIRED_FILES = ['manifest.json', 'background.js'];
+const REQUIRED_ML_ASSETS = [
+  'assets/ml/redaction/config.json',
+  'assets/ml/redaction/preprocessor_config.json',
+  'assets/ml/redaction/onnx/model_quantized.onnx',
+  'assets/ml/wasm/ort-wasm-simd-threaded.mjs',
+  'assets/ml/wasm/ort-wasm-simd-threaded.wasm',
+];
+const FORBIDDEN_ML_ASSETS = [
+  'assets/ml/wasm/ort-wasm-simd-threaded.jsep.mjs',
+  'assets/ml/wasm/ort-wasm-simd-threaded.jsep.wasm',
+];
 const FORBIDDEN_PATH_SEGMENTS = ['node_modules'];
 const FORBIDDEN_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.map'];
 
@@ -33,10 +44,26 @@ function collectRelativeFiles(rootDir, currentDir = rootDir) {
 }
 
 function validateFileList(files, label) {
+  const normalizedFiles = files.map((file) => file.replaceAll('\\', '/'));
+
   for (const requiredFile of REQUIRED_FILES) {
     assert(
-      files.includes(requiredFile),
+      normalizedFiles.includes(requiredFile),
       `${label} is missing required file ${requiredFile}`,
+    );
+  }
+
+  for (const requiredAsset of REQUIRED_ML_ASSETS) {
+    assert(
+      normalizedFiles.includes(requiredAsset),
+      `${label} is missing required ML asset ${requiredAsset}`,
+    );
+  }
+
+  for (const forbiddenAsset of FORBIDDEN_ML_ASSETS) {
+    assert(
+      !normalizedFiles.includes(forbiddenAsset),
+      `${label} contains deprecated ML runtime asset ${forbiddenAsset}`,
     );
   }
 
@@ -55,6 +82,46 @@ function validateFileList(files, label) {
   }
 }
 
+function readManifest(rootDir) {
+  return JSON.parse(readFileSync(path.join(rootDir, 'manifest.json'), 'utf8'));
+}
+
+function validateManifest(browser, rootDir, label) {
+  const manifest = readManifest(rootDir);
+
+  if (browser === 'firefox') {
+    assert(manifest.manifest_version === 2, `${label} must use MV2 for Firefox`);
+    assert(
+      !manifest.permissions?.includes('offscreen'),
+      `${label} must not request the offscreen permission on Firefox`,
+    );
+    assert(
+      Array.isArray(manifest.background?.scripts) && manifest.background.scripts.includes('background.js'),
+      `${label} must expose background.js as a Firefox background page`,
+    );
+    assert(
+      manifest.browser_specific_settings?.gecko?.id === 'snapvault@snapvault.app',
+      `${label} must declare a stable Firefox add-on id`,
+    );
+    assert(
+      Array.isArray(manifest.browser_specific_settings?.gecko?.data_collection_permissions?.required)
+        && manifest.browser_specific_settings.gecko.data_collection_permissions.required.includes('none'),
+      `${label} must declare Firefox data collection permissions as none`,
+    );
+    return;
+  }
+
+  assert(manifest.manifest_version === 3, `${label} must use MV3 for Chromium targets`);
+  assert(
+    manifest.permissions?.includes('offscreen'),
+    `${label} must request the offscreen permission for Chromium targets`,
+  );
+  assert(
+    manifest.background?.service_worker === 'background.js',
+    `${label} must expose background.js as an MV3 service worker`,
+  );
+}
+
 function validateBuildDirectory(browser) {
   const buildDir = path.join(process.cwd(), 'dist', browser);
   assert(existsSync(buildDir), `Build directory not found: ${buildDir}`);
@@ -62,6 +129,7 @@ function validateBuildDirectory(browser) {
 
   const files = collectRelativeFiles(buildDir);
   validateFileList(files, `${browser} build directory`);
+  validateManifest(browser, buildDir, `${browser} build directory`);
 }
 
 function expandZipArchive(zipPath) {
@@ -107,6 +175,7 @@ function validateZipArchive(browser, version) {
   try {
     const files = collectRelativeFiles(extractedDir);
     validateFileList(files, `${browser} ZIP archive`);
+    validateManifest(browser, extractedDir, `${browser} ZIP archive`);
   } finally {
     rmSync(extractedDir, { recursive: true, force: true });
   }
@@ -114,7 +183,7 @@ function validateZipArchive(browser, version) {
 
 async function main() {
   const browsers = process.argv.slice(2);
-  const targets = browsers.length > 0 ? browsers : ['chrome', 'firefox'];
+  const targets = browsers.length > 0 ? browsers : ['chrome', 'firefox', 'edge'];
   const version = await getPackageVersion();
 
   for (const browser of targets) {

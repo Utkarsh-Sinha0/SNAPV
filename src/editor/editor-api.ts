@@ -1,4 +1,5 @@
 import { getDefaultExportSpec, validateExportSpec } from '../shared/export-spec';
+import { getWebExtensionNamespace } from '../shared/webextension-namespace';
 import type {
   CaptureMetadata,
   ExportArtifact,
@@ -37,17 +38,24 @@ export type LoadedEditorImage = CanvasImageSource & {
 const POPUP_EXPORT_SPEC_KEY = 'popup.exportSpec';
 const FALLBACK_FILENAME_TEMPLATE = 'snapvault-{date}-{time}.{format}';
 
+function unwrapRuntimeResponse<T>(response: unknown): T {
+  if (typeof response === 'object' && response !== null && '__error__' in response) {
+    const error = (response as { __error__?: unknown }).__error__;
+    throw new Error(typeof error === 'string' ? error : 'Extension request failed');
+  }
+
+  return response as T;
+}
+
 function getChromeApis(): EditorApis {
-  const chromeLike = (globalThis as unknown as {
-    chrome: {
-      runtime: RuntimeLike;
-      storage: { local: StorageAreaLike };
-    };
-  }).chrome;
+  const extensionApi = getWebExtensionNamespace<{
+    runtime: RuntimeLike;
+    storage: { local: StorageAreaLike };
+  }>();
 
   return {
-    runtime: chromeLike.runtime,
-    storage: chromeLike.storage.local,
+    runtime: extensionApi.runtime,
+    storage: extensionApi.storage.local,
   };
 }
 
@@ -135,10 +143,14 @@ export async function requestCaptureData(
   captureId: string,
   apis: EditorApis = getChromeApis(),
 ): Promise<{ dataUrl?: string; metadata?: CaptureMetadata; sourceTabId?: number }> {
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'GET_CAPTURE_DATA_URL',
     captureId,
-  }) as Promise<{ dataUrl?: string; metadata?: CaptureMetadata; sourceTabId?: number }>;
+  });
+
+  return unwrapRuntimeResponse<{ dataUrl?: string; metadata?: CaptureMetadata; sourceTabId?: number }>(
+    response,
+  );
 }
 
 export async function storeCaptureData(
@@ -148,13 +160,15 @@ export async function storeCaptureData(
   sourceTabId: number | undefined,
   apis: EditorApis = getChromeApis(),
 ): Promise<void> {
-  await apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'STORE_CAPTURE_DATA_URL',
     captureId,
     dataUrl,
     metadata,
     ...(typeof sourceTabId === 'number' ? { sourceTabId } : {}),
   });
+
+  unwrapRuntimeResponse(response);
 }
 
 export async function applyExportSpec(
@@ -162,11 +176,13 @@ export async function applyExportSpec(
   spec: ExportSpec,
   apis: EditorApis = getChromeApis(),
 ): Promise<ExportArtifact> {
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'APPLY_EXPORT_SPEC',
     captureId,
     spec,
-  }) as Promise<ExportArtifact>;
+  });
+
+  return unwrapRuntimeResponse<ExportArtifact>(response);
 }
 
 export async function exportToDownloads(
@@ -174,11 +190,13 @@ export async function exportToDownloads(
   spec: ExportSpec,
   apis: EditorApis = getChromeApis(),
 ): Promise<{ filename: string }> {
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'EXPORT_DOWNLOAD',
     captureId,
     spec,
-  }) as Promise<{ filename: string }>;
+  });
+
+  return unwrapRuntimeResponse<{ filename: string }>(response);
 }
 
 export async function exportCaptureBoard(
@@ -186,31 +204,50 @@ export async function exportCaptureBoard(
   spec: ExportSpec,
   apis: EditorApis = getChromeApis(),
 ): Promise<{ filename: string }> {
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'EXPORT_CAPTURE_BOARD',
     captureIds,
     spec,
-  }) as Promise<{ filename: string }>;
+  });
+
+  return unwrapRuntimeResponse<{ filename: string }>(response);
 }
 
 export async function runDomRedaction(
   tabId: number,
   apis: EditorApis = getChromeApis(),
 ): Promise<{ annotations: RedactAnnotation[] }> {
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'RUN_DOM_REDACTION',
     tabId,
-  }) as Promise<{ annotations: RedactAnnotation[] }>;
+  });
+
+  const result = unwrapRuntimeResponse<{
+    annotations?: RedactAnnotation[];
+    error?: string;
+  }>(response);
+
+  if (!Array.isArray(result.annotations)) {
+    throw new Error(
+      typeof result.error === 'string' ? result.error : 'DOM redaction failed.',
+    );
+  }
+
+  return {
+    annotations: result.annotations,
+  };
 }
 
 export async function openCaptureBoard(
   captureIds: string[],
   apis: EditorApis = getChromeApis(),
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'OPEN_CAPTURE_BOARD',
     captureIds,
-  }) as Promise<{ ok: true } | { ok: false; error: string }>;
+  });
+
+  return unwrapRuntimeResponse<{ ok: true } | { ok: false; error: string }>(response);
 }
 
 export async function loadImageFromDataUrl(dataUrl: string): Promise<LoadedEditorImage> {

@@ -1,0 +1,97 @@
+---
+description: Core SnapVault project conventions. Always active. Read this before generating any code in this project.
+alwaysApply: true
+---
+
+# SnapVault — Core Project Rules
+
+## Identity
+You are an expert TypeScript + browser extension engineer building SnapVault:
+a privacy-first, deterministic screenshot export extension.
+Stack: WXT 0.20.19 · Preact 10 · TypeScript strict · Vitest · Playwright.
+
+## The one rule that overrides everything
+Before writing any code, ask: does this touch canvas, WASM, or DOM outside a
+content script? If yes → it belongs in `src/offscreen/offscreen.ts`, not in
+the service worker. See `.cursor/rules/offscreen.mdc`.
+
+## TypeScript non-negotiables
+- `strict: true` in tsconfig. No exceptions.
+- Never use `any`. Use `unknown` and narrow it, or define a proper type.
+- Never use `// @ts-ignore` or `// @ts-expect-error` without a comment
+  explaining exactly why and referencing a GitHub issue or bug number.
+- All async functions must have explicit return types: `Promise<ExportResult>`
+  not `Promise<any>` and not implicit inference when the type is non-obvious.
+- Discriminated unions over boolean flags:
+  `{ status: 'ok'; data: T } | { status: 'error'; reason: string }`
+  not `{ ok: boolean; data?: T; error?: string }`.
+- `Result<T>` pattern for all fallible operations that cross message boundaries.
+- No `as` type assertions unless you have a runtime check immediately before it.
+
+## Code style (enforced, non-negotiable)
+- Named exports only. Never `export default`. No exceptions.
+  Reason: default exports break refactor tooling and create import name drift.
+- `const` arrow functions for all Preact components:
+  `const MyComponent = ({ prop }: Props): JSX.Element => { ... }`
+- Early returns for guard clauses. Happy path last.
+  ```ts
+  // WRONG
+  function process(x: unknown) {
+    if (x !== null) {
+      if (typeof x === 'string') {
+        return x.toUpperCase();
+      }
+    }
+  }
+  // RIGHT
+  function process(x: unknown): string {
+    if (x === null) return '';
+    if (typeof x !== 'string') return '';
+    return x.toUpperCase();
+  }
+  ```
+- Descriptive variable names with auxiliary verbs:
+  `isLoading`, `hasError`, `canExport`, `shouldNormalize`.
+  Never single-letter variables outside of short array map/filter callbacks.
+- No magic numbers. Every numeric constant gets a named `const`:
+  `const OFFSCREEN_IDLE_TIMEOUT_MS = 30_000` not `setTimeout(fn, 30000)`.
+
+## File organisation (mandatory)
+- One concern per file. A 200-line file is already suspicious.
+- File layout order (top → bottom):
+  1. Imports (external → internal → types)
+  2. Types / interfaces (local to this file only)
+  3. Constants
+  4. Main export (component or function)
+  5. Sub-components or helpers (if needed in same file)
+  Never define a type in the middle of a function block.
+- `src/shared/` = pure functions only. No browser APIs. No `chrome.*`. No DOM.
+  If a function in `src/shared/` calls `chrome.storage`, move it.
+- `src/background/` = message routing only. No canvas. No encode. No WASM.
+  If background code does heavy work, route it via `offscreen-adapter.ts`.
+
+## Error handling (mandatory pattern)
+Every async function that crosses a message boundary returns:
+```ts
+type Result<T> = { ok: true; data: T } | { ok: false; error: string };
+```
+Never throw across `chrome.runtime.sendMessage`. Catch and return `Result`.
+Never swallow errors silently — at minimum `console.error` with context.
+
+## What the agent must NEVER do
+- Generate placeholder code: `// TODO implement`, `// ...`, stub functions
+  that return `undefined` silently.
+- Use `var`.
+- Mutate function parameters.
+- Use array index as a React/Preact list key for dynamic lists.
+- Import from a higher-numbered layer (shared can't import from background;
+  background can't import from popup — see TECHNICAL_ARCHITECTURE.md).
+- Add a dependency without checking if stdlib or an existing dep solves it.
+- Write a feature before writing its failing test.
+- Modify a file without reading its current state in this session first.
+
+## Commit discipline
+- Conventional Commits: `feat:`, `fix:`, `test:`, `refactor:`, `chore:`, `docs:`
+- Message under 72 characters.
+- One logical change per commit. Do not bundle unrelated fixes.
+- Never commit with failing tests.

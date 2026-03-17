@@ -8,6 +8,10 @@ vi.mock('../../src/shared/assert-no-pixel-payload', () => ({
   assertNoPixelPayload: vi.fn(),
 }));
 
+vi.mock('../../src/shared/browser', () => ({
+  isFirefox: vi.fn(() => false),
+}));
+
 import {
   __resetCaptureServiceForTests,
   handleStoreCaptureDataUrl,
@@ -17,6 +21,7 @@ import {
   handleGetLicenseState,
   handleOpenCaptureBoard,
   handlePickDomElementResult,
+  handleRunDomRedaction,
   handleStartLicenseCheckout,
   handleSyncLicense,
   registerProMessageHandlers,
@@ -197,6 +202,27 @@ describe('pro-service', () => {
         rect: { x: 12, y: 24, width: 200, height: 100 },
       }),
     );
+  });
+
+  it('bootstraps the content script before DOM redaction messages', async () => {
+    const { apis } = createApis({
+      licenseState: { status: 'pro' },
+    });
+
+    await handleRunDomRedaction({ tabId: 9 }, apis);
+
+    expect(apis.scripting.executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { tabId: 9 },
+        args: [
+          'chrome-extension://snapvault/content-scripts/content.js',
+          '__snapvaultContentScriptReady',
+        ],
+      }),
+    );
+    expect(apis.tabs.sendMessage).toHaveBeenCalledWith(9, {
+      type: 'RUN_DOM_REDACTION',
+    });
   });
 
   it('opens the board editor only for pro users', async () => {

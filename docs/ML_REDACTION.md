@@ -1,9 +1,11 @@
 # ML_REDACTION.md
 # SnapVault — Local ML Redaction (Transformers.js ONNX)
-# Version: 1.0.0 | Last Updated: 2026-03-16
+# Version: 3.1.0 | Last Updated: 2026-03-17
 
 This document specifies the offline auto-redaction system for SnapVault Pro (Tier 2).
-All inference runs locally inside the Offscreen Document. Zero data leaves the device.
+All inference runs locally inside the shared heavy-worker core. On Chromium that means
+the offscreen document; on Firefox it means the background-page shell. Zero data leaves
+the device.
 
 ---
 
@@ -12,7 +14,7 @@ All inference runs locally inside the Offscreen Document. Zero data leaves the d
 | Layer | When | What it catches | Where it runs |
 |-------|------|----------------|---------------|
 | DOM-text (V1.0) | Always (Pro) | Emails, phones, CC numbers (Luhn), API keys, tokens | Content script → background |
-| ML / ONNX (V1.1) | On demand (Pro, lazy-load) | Faces, logos, sensitive text blocks (layout-aware) | offscreen.ts |
+| ML / ONNX (V1.1) | On demand (Pro, lazy-load) | Offline object detection mapped into reviewable redaction boxes | offscreen document |
 
 Both layers produce a `RedactAnnotation[]` list (bounding boxes + type). The editor
 renders these as blur overlays for user review before export. Nothing is auto-applied
@@ -24,30 +26,55 @@ without user confirmation.
 
 Requirements:
 - Must run as ONNX model via Transformers.js 3.x WASM backend.
-- Bundle size: < 5 MB compressed (gzip/brotli) — hard limit.
 - Latency: < 3 s for a 1920×1080 screenshot on a mid-range 2023 laptop.
 - Offline: weights bundled with extension; no CDN fetch ever.
-- Detects: PII text blocks, faces, and recognizable logos.
+- Detects: reviewable object regions without any network dependency.
 
-**Recommended starting model:** `Xenova/detr-resnet-50` (object detection, ONNX-quantized)
-or a custom fine-tuned `LayoutLM`-family model at int8 precision.
+**Current bundled model:** `Xenova/yolos-tiny` quantized ONNX weights, loaded from the
+extension package via the local `redaction/` model id. The current shipping asset set is:
+- `public/assets/ml/redaction/config.json`
+- `public/assets/ml/redaction/preprocessor_config.json`
+- `public/assets/ml/redaction/onnx/model_quantized.onnx`
+- `public/assets/ml/wasm/ort-wasm-simd-threaded.{mjs,wasm}`
+
 Run your own accuracy benchmark on the test images in `/test_pages/redaction/` before
-shipping — model accuracy is a product invariant.
-
-Model file location in repo: `src/assets/ml/redaction.onnx` (git-LFS or bundled).
+shipping — model accuracy is still a product invariant.
 
 ---
 
-## 3) Integration point: offscreen.ts
+## 3) Delivery decision (v1.0 / v1.1)
+
+**v1.0 decision:** ship the local ONNX model bundled with the extension package.
+
+Rationale:
+- The feature is Pro-only, but fully local inference is a core product promise.
+- Bundling keeps privacy semantics simple: no post-install fetch, no CDN, no account gate.
+- Store review is simpler than introducing a second delivery system before we have usage data.
+
+**v1.1 candidate:** optional model delivery after install, only if startup/install data
+shows the bundled payload is materially hurting activation on low-end devices.
+
+Until then, the optimization strategy is:
+- keep the model bundled,
+- keep startup-critical code lazy,
+- measure service-worker cold start directly in the extension harness.
+
+---
+
+## 4) Integration point: shared heavy-worker core
 
 ```ts
 // src/offscreen/ml-redaction.ts  (lazy-loaded)
-import { pipeline, env } from '@xenova/transformers';
+import { pipeline, env } from '@huggingface/transformers';
 
 // Point Transformers.js to local ONNX weights — never CDN
 env.localModelPath = chrome.runtime.getURL('assets/ml/');
 env.allowRemoteModels = false;   // HARD BLOCK — no network fetch
 env.allowLocalModels = true;
+env.backends.onnx.wasm.wasmPaths = {
+  mjs: chrome.runtime.getURL('assets/ml/wasm/ort-wasm-simd-threaded.mjs'),
+  wasm: chrome.runtime.getURL('assets/ml/wasm/ort-wasm-simd-threaded.wasm'),
+};
 
 let detector: ReturnType<typeof pipeline> | null = null;
 
@@ -57,8 +84,8 @@ export async function runMlRedaction(
   if (!detector) {
     // First call: load model (< 3 s on warm WASM runtime)
     detector = await pipeline('object-detection', 'redaction', {
-      backend: 'wasm',
-      quantized: true,
+      device: 'wasm',
+      dtype: 'q8',
     });
   }
 
@@ -79,7 +106,7 @@ export async function runMlRedaction(
 
 ---
 
-## 4) DOM-text layer (V1.0 — content script)
+## 5) DOM-text layer (V1.0 — content script)
 
 Run in content script before capture (Pro only). Walks visible text nodes and applies:
 
@@ -96,7 +123,7 @@ stored in background capture cache sidecar — ephemeral, never persisted.
 
 ---
 
-## 5) Annotation data model
+## 6) Annotation data model
 
 ```ts
 type RedactAnnotationType =
@@ -115,7 +142,7 @@ interface RedactAnnotation {
 
 ---
 
-## 6) Editor review UX
+## 7) Editor review UX
 
 1. After redaction detection, editor shows "Review Redactions" panel.
 2. Each annotation is shown as a semi-transparent blur overlay on the canvas.
@@ -126,19 +153,19 @@ interface RedactAnnotation {
 
 ---
 
-## 7) Privacy guarantees
+## 8) Privacy guarantees
 
 | Guarantee | Implementation |
 |-----------|---------------|
 | Model never fetches from network | `env.allowRemoteModels = false` + `assertNoPixelPayload` guard |
 | Detections are ephemeral | Stored only in offscreen document memory; cleared on `OFFSCREEN_CLEAR_MEMORY` |
 | Annotation rects never transmitted | Same `assertNoPixelPayload` guard as pixel buffers |
-| Model weights are local | Bundled in extension package; `env.localModelPath` points to `chrome.runtime.getURL` |
+| Model weights + WASM runtime are local | Bundled in extension package; `env.localModelPath` and `env.backends.onnx.wasm.wasmPaths` point to `chrome.runtime.getURL` |
 | User must confirm before applying | UX gate; export pipeline checks `userReviewed === true` |
 
 ---
 
-## 8) Performance budget
+## 9) Performance budget
 
 | Metric | Target |
 |--------|--------|
@@ -146,19 +173,19 @@ interface RedactAnnotation {
 | Inference on 1920×1080 | < 2 s |
 | Inference on 3840×2160 (4K) | < 6 s (warn user before starting) |
 | Memory during inference | < 300 MB peak (offscreen doc, released on clear) |
-| Model bundle size (gzip) | < 5 MB |
+| Current local ML payload | `model_quantized.onnx` 9.66 MB + ORT WASM 11.13 MB |
 
 Progress indicator required in editor UI during model load and inference.
 If inference takes > 1 s, show a progress spinner with "Analyzing screenshot…".
 
 ---
 
-## 9) Testing
+## 10) Testing
 
 - `/test_pages/redaction/` contains synthetic screenshots with known PII and faces.
 - Unit test: `runMlRedaction()` on reference images → assert minimum recall ≥ 90%.
 - Unit test: `env.allowRemoteModels = false` is verified — no network calls during inference.
-- Integration: Playwright extension test triggers `RUN_AUTO_REDACTION`, asserts editor
+- Integration: Playwright extension test triggers `RUN_ML_REDACTION`, asserts editor
   shows annotation overlays and no outbound network requests occur.
 - Privacy regression: `assertNoPixelPayload` called in mock of any network API — asserts it
   throws when passed an annotation-containing payload.

@@ -30,8 +30,8 @@ offscreen document and any future background workers.
 - No `<script src="https://...">` in extension pages (popup / options / editor / offscreen).
 - No `eval()`, `new Function()`, string-based `setTimeout`/`setInterval`.
 - All JS and WASM must be bundled with the extension.
-- **ML model weights** (`src/assets/ml/`) must be served from
-  `chrome.runtime.getURL(...)` — never fetched from a CDN.
+- **ML model weights** (`public/assets/ml/`) must be served from
+    `chrome.runtime.getURL(...)` — never fetched from a CDN.
 - `env.allowRemoteModels = false` (Transformers.js) is a required config invariant.
   A CI test must assert this is set and that no network call occurs during inference.
 

@@ -1,6 +1,6 @@
 # SECURITY_PRIVACY.md
 # SnapVault — Privacy-Centric Security Model
-# Version: 3.0.0 | Last Updated: 2026-03-16
+# Version: 3.1.0 | Last Updated: 2026-03-17
 
 ---
 
@@ -84,7 +84,7 @@ All calls are wrapped by `assertNoPixelPayload`. No exceptions.
 The offscreen document is the most security-sensitive surface because it processes raw
 pixel data. Rules:
 
-- `assertNoPixelPayload` called before any `fetch` inside `offscreen.ts`.
+- `assertNoPixelPayload` called before any network-capable path in the heavy-worker flow.
 - Image data received via message is processed and immediately released (set to `null`).
 - No `IndexedDB` or `localStorage` writes inside offscreen document.
 - Offscreen document is not a persistent background — it is created per-operation and
@@ -131,15 +131,15 @@ pixel data. Rules:
 
 ## 10) Pre-release security checklist
 
-- [ ] No pixel buffers ever reach `fetch` / `XHR` / `WebSocket` (static `assertNoPixelPayload` audit + runtime test).
-- [ ] Ads run only in sandbox page (`ads_sandbox.html`).
-- [ ] Capture requires explicit user gesture.
-- [ ] Minimal permissions — no extras in manifest.
-- [ ] No remote scripts in extension pages (popup / options / editor / offscreen).
-- [ ] `env.allowRemoteModels = false` in Transformers.js config — CI-verified.
-- [ ] No network calls during ML inference (Playwright network intercept test).
-- [ ] Offscreen document closes after idle timeout — verified in integration test.
-- [ ] "Nuke everything" clears all storage + offscreen memory — verified in integration test.
-- [ ] Capture expiry purge runs at SW startup — verified in unit test.
-- [ ] `SNAPVAULT_E2E=1` flag does not affect production manifest permissions.
-- [ ] Firefox build has no `offscreen` permission in manifest (not supported, not needed).
+- [x] No pixel buffers ever reach `fetch` / `XHR` / `WebSocket` (static `assertNoPixelPayload` audit + runtime test).
+- [x] Ads run only in sandbox page (`ads_sandbox.html`).
+- [x] Capture requires explicit user gesture.
+- [x] Minimal permissions — no extras in manifest.
+- [x] No remote scripts in extension pages (popup / options / editor / offscreen).
+- [x] `env.allowRemoteModels = false` in Transformers.js config — CI-verified.
+- [x] No network calls during ML inference (Playwright network intercept test).
+- [x] Offscreen document closes after idle timeout — verified in integration test.
+- [x] "Nuke everything" clears all storage + offscreen memory — verified in integration test.
+- [x] Capture expiry purge runs at SW startup — verified in unit test.
+- [x] `SNAPVAULT_E2E=1` flag does not affect production manifest permissions.
+- [x] Firefox build has no `offscreen` permission in manifest (not supported, not needed).

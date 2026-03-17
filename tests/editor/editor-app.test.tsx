@@ -438,6 +438,66 @@ describe('EditorApp', () => {
     expect(screen.getByLabelText('Pending redaction count').textContent).toBe('0');
   });
 
+  it('surfaces DOM redaction transport errors instead of treating them like suggestions', async () => {
+    const { apis, sendMessage } = createApis();
+    sendMessage.mockImplementation(async (message: unknown) => {
+      const payload = message as { type?: string };
+      if (payload.type === 'GET_CAPTURE_DATA_URL') {
+        return {
+          dataUrl: 'data:image/png;base64,test',
+          metadata: {
+            cssWidth: 120,
+            cssHeight: 100,
+            devicePixelRatio: 1,
+            screenLeft: 0,
+            screenTop: 0,
+            lightMode: false,
+            capturedAt: 1,
+          },
+          sourceTabId: 91,
+        };
+      }
+
+      if (payload.type === 'RUN_DOM_REDACTION') {
+        return {
+          ok: false,
+          error: 'Could not establish connection. Receiving end does not exist.',
+        };
+      }
+
+      if (payload.type === 'OPEN_CAPTURE_BOARD') {
+        return {
+          ok: false,
+          error: 'Pro license required',
+        };
+      }
+
+      if (payload.type === 'EXPORT_DOWNLOAD') {
+        return { filename: 'snapvault.png' };
+      }
+
+      return {
+        dataUrl: 'data:image/png;base64,encoded',
+        mimeType: 'image/png',
+      };
+    });
+
+    renderEditor({
+      apis,
+      initialCaptureId: 'capture-redaction-error',
+    });
+
+    await waitForCaptureLoad();
+    fireEvent.click(screen.getByRole('button', { name: 'Run DOM Redaction' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Editor status').textContent).toContain(
+        'Could not establish connection. Receiving end does not exist.',
+      ),
+    );
+    expect(screen.getByLabelText('Pending redaction count').textContent).toBe('0');
+  });
+
   it('shows the board gate error when a free user tries to open the board', async () => {
     const { apis, sendMessage } = createApis();
     renderEditor({

@@ -1,6 +1,6 @@
 # DEVELOPER_GUIDE.md
 # SnapVault — Repo Setup & Dev Workflow
-# Version: 3.0.0 | Last Updated: 2026-03-16
+# Version: 3.1.0 | Last Updated: 2026-03-17
 
 ---
 
@@ -16,8 +16,9 @@ All product truth lives in `/docs/*.md`. Read them in this order before generati
 7. `API_SPECIFICATIONS.md`
 8. `MONETIZATION_STRATEGY.md`
 9. `TESTING_QA.md`
-10. `DEPLOYMENT.md`
-11. `AGENTS.md`
+10. `PERFORMANCE_STARTUP.md`
+11. `DEPLOYMENT.md`
+12. `AGENTS.md`
 
 ---
 
@@ -37,7 +38,8 @@ cross-browser publishing regressions. Pin the exact version.
 ## 3) Non-negotiable dev rules
 
 - No remote scripts in extension pages. MV3 CSP = `script-src 'self'`.
-- All canvas / WASM work in `src/offscreen/`. Never in service worker.
+- All canvas / WASM work routes through the shared heavy-worker core. Chromium uses the
+  offscreen runtime shell; Firefox uses the background-page shell.
 - `env.allowRemoteModels = false` in any Transformers.js usage.
 - `assertNoPixelPayload` wraps every `fetch` / `XHR` in the codebase.
 - Tests for: Export Spec math, feasibility engine, DPI normalization, offscreen
@@ -49,8 +51,12 @@ cross-browser publishing regressions. Pin the exact version.
 ## 4) Core commands
 
 ```bash
+# Browser shell sync (normally run automatically by dev/build/test commands)
+npm run sync:browser-shells
+
 # Development (Chrome, hot reload via WXT 0.20.19 HMR)
 npm run dev                         # TARGET_BROWSER=chrome (default)
+npm run dev:edge                    # TARGET_BROWSER=edge
 npm run dev:firefox                 # TARGET_BROWSER=firefox
 
 # Builds
@@ -65,16 +71,21 @@ npm run typecheck
 # Unit tests (Vitest)
 npm test
 
-# E2E — page-level tests (no extension)
-npm run test:e2e
-
 # E2E — Chromium extension harness
 npm run test:e2e:extension:chromium
 
-# E2E — Firefox extension harness
-npm run test:e2e:extension:firefox
+# E2E — Edge extension harness
+npm run test:e2e:extension:edge
 
-# Both extension harnesses (CI)
+# Dedicated startup/perf budgets
+npm run test:perf:extension:chromium
+npm run test:perf:extension:edge
+npm run test:perf:extension
+
+# Firefox packaging + runtime contract
+npm run test:firefox:package
+
+# Cross-browser matrix (Chromium + Edge e2e, Firefox package validation)
 npm run test:e2e:extension
 
 # Licensing backend (local Stripe dev)
@@ -109,11 +120,13 @@ export default defineConfig({
 
 ---
 
-## 6) Offscreen document development notes
+## 6) Heavy-worker development notes
 
-- `src/offscreen/offscreen.html` is a WXT entrypoint — WXT registers it automatically.
-- `src/offscreen/offscreen.ts` is the message handler module — do NOT import this from
-  anywhere other than `offscreen.html`.
+- `src/offscreen/index.html` is the Chromium WXT entrypoint.
+- `src/offscreen/runtime.chromium.ts` is the Chromium message-listener shell.
+- `src/offscreen/runtime.firefox.ts` is a no-op shell so Firefox does not pull the
+  Chromium offscreen runtime into its build graph.
+- `src/shared/heavy-worker-service.ts` holds the browser-neutral stitch/encode/PDF/ML core.
 - During development, WXT hot-reload does NOT re-create the offscreen document. You must
   manually reload the extension (`chrome://extensions → reload`) to pick up offscreen changes.
 - To debug offscreen: open `chrome://extensions`, click "Service Worker" → In DevTools,
@@ -122,23 +135,15 @@ export default defineConfig({
 
 ---
 
-## 7) ML model setup (first time)
+## 7) ML model payload
 
-```bash
-# Download and convert model to ONNX int8 (one-time setup)
-npm run ml:setup         # runs scripts/setup-ml-model.mjs
-```
+The repo now ships the bundled local payload directly:
+1. `public/assets/ml/redaction/config.json`
+2. `public/assets/ml/redaction/preprocessor_config.json`
+3. `public/assets/ml/redaction/onnx/model_quantized.onnx`
+4. `public/assets/ml/wasm/ort-wasm-simd-threaded.{mjs,wasm}`
 
-`scripts/setup-ml-model.mjs`:
-1. Downloads base model weights (one-time, developer machine only — NOT at runtime).
-2. Converts to ONNX int8 quantized format.
-3. Copies to `src/assets/ml/redaction.onnx`.
-
-This file is bundled into the extension build. Users never download it — it ships with
-the extension package. Size budget: < 5 MB compressed.
-
-**CI:** `src/assets/ml/redaction.onnx` must be committed or available via Git LFS.
-If missing, `npm run build:chrome` will fail with a clear error message.
+These files are copied into every extension artifact. No CDN fetch is allowed at runtime.
 
 ---
 
@@ -150,7 +155,7 @@ src/
   options/                Presets + privacy toggles + sponsor slot
   editor/                 Canvas annotation + export
   background/             Service worker (orchestration only)
-  offscreen/              offscreen.html + offscreen.ts (canvas/WASM)
+  offscreen/              browser-specific runtime shells
   content/                Region select, element picker, clean capture, action bar
   ads_sandbox/            Sandboxed iframe — Carbon or sponsor.json card
   shared/
@@ -162,18 +167,22 @@ src/
     encode.ts             JPEG/PNG encode (called from offscreen)
     pdf.ts                PDF assembly via pdf-lib (called from offscreen)
     redact.ts             Apply redact annotations to canvas (called from offscreen)
-    browser.ts            chrome.* / browser.* adapter (webextension-polyfill)
+    browser.ts            browser detection helpers
     offscreen-adapter.ts  Routes heavy work: offscreen (Chrome) / bg page (Firefox)
     assert-no-pixel-payload.ts
   assets/
-    ml/
-      redaction.onnx      Bundled ONNX model weights (Pro, lazy-loaded)
     sponsor.json          Optional static sponsor card data
+
+public/
+  assets/
+    ml/
+      redaction/          Bundled local model config + ONNX weights
+      wasm/               Bundled ONNX Runtime WASM payload
 
 tests/                    Vitest unit tests
 e2e/                      Playwright tests
   playwright.config.ts         Page-level tests
-  playwright.extension.config.ts   Extension harness (Chromium + Firefox)
+  playwright.extension.config.ts   Extension harness (Chromium + Edge)
 test_pages/               Synthetic pages for capture regression testing
 services/
   licensing/
@@ -199,12 +208,12 @@ docs/                     All product documentation (source of truth)
 ## 10) Performance budget verification
 
 ```bash
-npm run test:perf        # runs perf-budget.spec.ts
+npm run test:perf:extension
 ```
 
 Budgets (fail CI if exceeded):
 - Popup open: 150 ms median.
 - Visible capture → export: 1 s median.
-- Idle extension memory: 20 MB.
-- ML model first-load: 3 s.
+- Service worker cold-start: 1.2 s median.
 - "Nuke everything" completion: 500 ms.
+For Firefox packaging, use `npm run test:firefox:package` as the release-check command. It validates the build output and enforces the approved Mozilla lint baseline from [FIREFOX_LINT_BASELINE.md](/E:/SNAPV/docs/FIREFOX_LINT_BASELINE.md), so unexpected warnings fail fast in CI.

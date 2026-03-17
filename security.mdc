@@ -1,0 +1,84 @@
+---
+description: Privacy and security rules for SnapVault. Auto-applied to background, offscreen, and shared files. The pixel payload invariant is the most important constraint in this entire codebase.
+globs: ["src/background/**", "src/offscreen/**", "src/shared/**", "services/**"]
+alwaysApply: false
+---
+
+# Security & Privacy Rules
+
+## The pixel payload invariant (LAW-01)
+No screenshot pixel data may ever reach `fetch`, `XMLHttpRequest`,
+`WebSocket.send`, or any other network sink.
+
+Enforcement: `assertNoPixelPayload(payload)` must be called before EVERY
+outbound network call in the codebase. There are no exceptions.
+
+The static audit script (`scripts/audit-pixel-payload.mjs`) checks this on
+every CI run. If you add a `fetch()` call without `assertNoPixelPayload`,
+CI will fail.
+
+```ts
+// EVERY network call must look like this:
+assertNoPixelPayload(body);        // throws if body contains pixel data
+const res = await fetch(url, { method: 'POST', body: JSON.stringify(body) });
+```
+
+## What counts as pixel data
+- Any `dataURL` string (starts with `data:`)
+- Any `ImageData` object
+- Any `ArrayBuffer` or `Uint8ClampedArray` derived from canvas
+- Any `Blob` created by `canvas.convertToBlob()`
+- Any object with a field named `dataUrl`, `imageData`, `pixels`, `blob`
+  whose value is one of the above
+
+What does NOT count as pixel data (safe to send):
+- `installationId`, `plan`, `expiresAt`, `licenseStatus`
+- Event names for analytics
+- `captureId` strings (they are opaque identifiers, not the image itself)
+- `RedactAnnotation[]` (bounding boxes and labels — no pixel content)
+
+## MV3 remote script prohibition (LAW-02)
+Never add a `<script src="https://...">` to any extension page.
+Never use `eval()`, `new Function(string)`, or string-form setTimeout/setInterval.
+All JS and WASM must be bundled. The CSP is `script-src 'self'`.
+
+The ONE exception: `ads_sandbox.html` has its own CSP and is isolated.
+Everything loaded there is Carbon's concern, not ours.
+
+## ML model — remote fetch prohibition
+`env.allowRemoteModels = false` is enforced in `ml-redaction.ts`.
+The CI test `tests/security/ml-no-network.test.ts` mocks all network APIs
+and asserts zero calls during `runMlRedaction`. Do not break this test.
+
+## Permissions — minimal by default
+Never add a permission to `manifest.json` or `wxt.config.ts` without:
+1. A comment explaining exactly which feature requires it.
+2. A corresponding entry in `docs/SECURITY_PRIVACY.md` §4.
+
+Permissions never to add: `webRequest`, `history`, `cookies`, `tabs` (broad),
+`<all_urls>` (except gated by `SNAPVAULT_E2E=1`).
+
+## Capture storage gate
+`STORE_CAPTURE_DATA_URL` must check `privacySettings.storeCaptures` before
+writing to `chrome.storage.local`. The in-memory Map is always updated
+(for current-session use); persistent storage is opt-in only.
+
+## Expiry enforcement
+The `PURGE_EXPIRED_CAPTURES` handler runs at SW startup and every 24 hours.
+It must delete all `capture:*` entries where
+`metadata.capturedAt < (Date.now() - captureExpiryDays * 86_400_000)`.
+This is LAW-08. Do not weaken or skip this check.
+
+## Nuke order (mandatory)
+`NUKE_ALL_CAPTURES` must execute in this exact order:
+1. `nukeOffscreenMemory()` — close offscreen doc if open.
+2. Delete all `capture:*` keys from `chrome.storage.local`.
+3. Clear the in-memory captures Map.
+
+Reversing steps 1 and 2 risks an in-flight offscreen operation trying to
+write to an already-deleted storage entry. Order is not negotiable.
+
+## Pro gate
+Every Pro-only message handler must call `assertProLicense(state)` as its
+FIRST line. The UI mirrors this gate, but the backend gate is the real one.
+A free user should never be able to get Pro features by crafting a message.

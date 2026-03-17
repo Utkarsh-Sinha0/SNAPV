@@ -1,4 +1,77 @@
+import { chromium } from '@playwright/test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { test, expect } from './extension-fixtures';
+
+async function measureServiceWorkerStartup(
+  projectName: string,
+  projectUse: {
+    viewport?: { width: number; height: number };
+    deviceScaleFactor?: number;
+    channel?: 'chromium' | 'msedge';
+  },
+  samples = 3,
+): Promise<number[]> {
+  const extensionPath = path.join(
+    process.cwd(),
+    'dist',
+    projectName.includes('edge') ? 'edge' : 'chrome',
+  );
+  const timings: number[] = [];
+
+  for (let index = 0; index < samples; index += 1) {
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'snapvault-pw-startup-'));
+    const startedAt = performance.now();
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: projectUse.channel ?? 'chromium',
+      headless: true,
+      viewport: projectUse.viewport ?? { width: 1280, height: 720 },
+      deviceScaleFactor: projectUse.deviceScaleFactor ?? 1,
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
+
+    try {
+      const serviceWorker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+      await serviceWorker.evaluate(() => {
+        const chromeLike = globalThis as typeof globalThis & {
+          chrome?: { runtime?: { id?: string } };
+        };
+        return typeof chromeLike.chrome?.runtime?.id === 'string';
+      });
+      timings.push(performance.now() - startedAt);
+    } finally {
+      await context.close();
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  }
+
+  return timings;
+}
+
+function getMedian(values: number[]): number {
+  return [...values].sort((left, right) => left - right)[Math.floor(values.length / 2)]!;
+}
+
+test('service worker cold-start median stays under 1200ms', async ({}, testInfo) => {
+  test.skip(testInfo.project.name.includes('hidpi'), 'Cold-start budget is tracked on the default DPR projects only.');
+
+  const projectUse = testInfo.project.use as {
+    viewport?: { width: number; height: number };
+    deviceScaleFactor?: number;
+    channel?: 'chromium' | 'msedge';
+  };
+  const timings = await measureServiceWorkerStartup(
+    testInfo.project.name,
+    projectUse,
+  );
+  const median = getMedian(timings);
+
+  expect(median).toBeLessThan(1_200);
+});
 
 test('popup DOMContentLoaded median stays under 150ms', async ({
   context,
@@ -14,7 +87,7 @@ test('popup DOMContentLoaded median stays under 150ms', async ({
     await page.close();
   }
 
-  const median = [...timings].sort((left, right) => left - right)[2]!;
+  const median = getMedian(timings);
   expect(median).toBeLessThan(150);
 });
 
@@ -47,7 +120,7 @@ test('capture visible to download median stays under 1000ms', async ({
     }
   }
 
-  const median = [...durations].sort((left, right) => left - right)[2]!;
+  const median = getMedian(durations);
   expect(median).toBeLessThan(1_000);
   await popup.close();
 });

@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/preact';
+import { fireEvent } from '@testing-library/preact';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PopupApp } from '../../src/popup/PopupApp';
 import type { PopupApis } from '../../src/popup/popup-api';
@@ -155,5 +156,56 @@ describe('PopupApp', () => {
         type: 'SYNC_LICENSE',
       }),
     );
+  });
+
+  it('starts interactive region capture and shows the selection message', async () => {
+    const apis = createApis();
+    vi.mocked(apis.runtime.sendMessage).mockImplementation(
+      async (message: unknown) => {
+        const payload = message as { type?: string };
+        if (payload.type === 'CHECK_FEASIBILITY') {
+          return {
+            ok: true,
+            blockingReasons: [],
+            warnings: [],
+          };
+        }
+
+        if (payload.type === 'SYNC_LICENSE') {
+          return { status: 'free' };
+        }
+
+        if (payload.type === 'CAPTURE_REGION') {
+          return { pending: true };
+        }
+
+        return { captureId: 'capture-123' };
+      },
+    );
+
+    render(<PopupApp apis={apis} />);
+
+    await waitFor(() =>
+      expect(apis.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'CHECK_FEASIBILITY',
+        }),
+      ),
+    );
+
+    const regionButtons = screen.getAllByRole('button', { name: /capture region/i });
+    fireEvent.click(regionButtons[regionButtons.length - 1]!);
+
+    await waitFor(() =>
+      expect(apis.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'CAPTURE_REGION',
+          tabId: 19,
+          spec: expect.any(Object),
+        }),
+      ),
+    );
+
+    expect(screen.getByText(/select a region on the page/i)).toBeTruthy();
   });
 });

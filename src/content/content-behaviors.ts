@@ -1,4 +1,5 @@
 import { scanTextNode } from '../shared/dom-redact';
+import { getWebExtensionNamespace } from '../shared/webextension-namespace';
 import type { ExportSpec, RectLike, RedactAnnotation } from '../shared/types';
 import { applyCleanCapture } from './clean-capture';
 
@@ -67,15 +68,13 @@ const ELEMENT_PICKER_ATTR = 'data-snapvault-element-picker';
 const ACTION_BAR_SELECTOR = '[data-snapvault-action-bar="true"]';
 
 function getDefaultBindings(): ContentBindings {
-  const chromeLike = (globalThis as unknown as {
-    chrome: {
-      runtime: RuntimeLike;
-    };
-  }).chrome;
+  const extensionApi = getWebExtensionNamespace<{
+    runtime: RuntimeLike;
+  }>();
 
   return {
     document,
-    runtime: chromeLike.runtime,
+    runtime: extensionApi.runtime,
     setTimeout: globalThis.setTimeout.bind(globalThis),
     clearTimeout: globalThis.clearTimeout.bind(globalThis),
     window,

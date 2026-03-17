@@ -1,0 +1,79 @@
+---
+description: WXT build system and browser extension architecture rules. Applied to wxt.config.ts, manifest config, and entrypoint files.
+globs: ["wxt.config.ts", "src/background/**", "src/content/**", "src/shared/browser.ts", "src/shared/offscreen-adapter.ts"]
+alwaysApply: false
+---
+
+# WXT + Extension Architecture Rules
+
+## WXT 0.20.19 — pinned, do not upgrade without review
+The version is pinned in `package.json`. Upgrading WXT can silently change
+manifest generation, HMR behaviour, or cross-browser output. Any upgrade
+requires a manual review of the WXT changelog and a full CI run.
+
+## Cross-browser build (mandatory from day 1)
+The `TARGET_BROWSER` env var drives everything:
+```ts
+// wxt.config.ts — the only place this logic lives
+browser: (process.env.TARGET_BROWSER as any) ?? 'chrome',
+manifestVersion: process.env.TARGET_BROWSER === 'firefox' ? 2 : 3,
+```
+Never hardcode `manifest_version: 3` anywhere else. WXT handles it.
+Never write `if (chrome.offscreen)` inline in business logic — that check
+belongs in `offscreen-adapter.ts` only.
+
+## Service worker rules (background/index.ts)
+The service worker is an ORCHESTRATOR ONLY.
+It may:
+- Receive and route messages.
+- Call `chrome.tabs.captureVisibleTab`.
+- Call `chrome.downloads.download`.
+- Read/write `chrome.storage.local` for lightweight metadata.
+- Delegate to `offscreen-adapter.ts` for heavy work.
+
+It must NOT:
+- Create a `canvas` element or `OffscreenCanvas` for pixel work.
+- Import Transformers.js or any WASM module.
+- Execute long synchronous loops (will kill the SW).
+- Store large blobs in memory (> 1 MB per capture is a risk).
+
+SW lifecycle: Chrome can terminate the SW after 30s of inactivity.
+Never assume SW state persists between messages. Any state that must
+survive SW termination goes in `chrome.storage.local` or `session`.
+
+## Content script rules (content/index.ts)
+- Injected on-demand via `chrome.scripting.executeScript`, not via
+  manifest `content_scripts` with `matches` (except under `SNAPVAULT_E2E=1`).
+- Must clean up ALL injected DOM after use:
+  overlays, style tags, action bars — all removed when their task is done.
+- Never store captured pixel data in content script memory. Send it to SW
+  immediately and discard the local reference.
+- Never make network calls from a content script.
+
+## Message protocol rules
+- Every message has a `type` field as a string literal.
+- Every message has a `Result<T>` response type, not `void` or `any`.
+- The message type catalog lives in `src/shared/types.ts`. If you add a
+  message type, add it there first, not inline in a handler.
+- Offscreen messages include a correlation `id: string` (UUID). Always echo it.
+
+## chrome.storage rules
+- `chrome.storage.local` for all persistent data.
+- `chrome.storage.session` for ephemeral SW-lifetime data (if needed).
+- Keys are namespaced: `capture:{uuid}`, `preset:{id}`, etc.
+  Never use bare keys like `'data'` or `'state'`.
+- `PURGE_EXPIRED_CAPTURES` runs at SW startup (in `chrome.runtime.onInstalled`
+  and `chrome.runtime.onStartup`). Do not call it in a message handler on
+  every popup open — that's excessive.
+
+## Permissions hygiene
+If you add a permission, you MUST:
+1. Add a comment in `wxt.config.ts` explaining which feature needs it.
+2. Update `docs/SECURITY_PRIVACY.md` §4.
+3. Verify it does not appear in the Firefox manifest if unsupported.
+`offscreen` is Chrome/Edge only. `clipboardWrite` is gated behind user gesture.
+
+## `offscreen-adapter.ts` contract
+This is the ONLY module that checks `isFirefox()` for routing heavy work.
+All other modules call `sendToHeavyWorker(msg)` and are browser-agnostic.
+Do not scatter `isFirefox()` checks across the codebase.

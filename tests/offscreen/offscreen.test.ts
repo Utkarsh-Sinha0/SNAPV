@@ -5,7 +5,7 @@ import {
   getHeldReferenceCount,
   registerOffscreenMessageListener,
   rememberOffscreenReference,
-} from '../../src/offscreen/offscreen';
+} from '../../src/offscreen/runtime.chromium';
 
 describe('offscreen listener', () => {
   beforeEach(() => {
