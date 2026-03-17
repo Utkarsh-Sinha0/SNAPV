@@ -81,8 +81,8 @@ Shared heavy-work implementation lives in `src/shared/heavy-worker-service.ts`.
   using WXT's `browser` abstraction.
 - `src/shared/offscreen-adapter.ts` exposes a single `sendToHeavyWorker(msg)` function that
   resolves to offscreen on Chrome/Edge and to background-page on Firefox.
-- The stable adapter path is generated per target: `src/generated/heavy-worker-client.ts`
-  points at either `heavy-worker-client.chromium.ts` or `heavy-worker-client.firefox.ts`.
+- Browser-family routing is compile-time selected through `__SNAPVAULT_TARGET_FAMILY__`,
+  so Chrome/Edge and Firefox do not share the same shell bootstrap path.
 - No feature-contract changes; same message shapes.
 
 ---
@@ -106,9 +106,9 @@ Shared heavy-work implementation lives in `src/shared/heavy-worker-service.ts`.
 browser: process.env.TARGET_BROWSER ?? 'chrome',  // chrome | firefox | edge
 manifestVersion: process.env.TARGET_BROWSER === 'firefox' ? 2 : 3,
 ```
-All builds share the same `src/`; WXT handles manifest generation per target, and
-`scripts/sync-browser-shells.mjs` keeps the generated shell entrypoints aligned with the
-selected browser before dev/build/test commands run.
+All builds share the same `src/`; WXT handles manifest generation per target, and the
+browser family is injected at build time so shell routing stays in source rather than
+tracked generated files.
 
 ---
 
@@ -266,7 +266,7 @@ src/shared/browser.ts       — wraps chrome.* / browser.* via webextension-poly
 src/shared/offscreen-adapter.ts — stable heavy-worker client entrypoint
 src/background/background-shell.chromium.ts — Chromium shell bootstrap
 src/background/background-shell.firefox.ts  — Firefox shell bootstrap
-src/generated/*            — generated shell aliases for the active target
+src/offscreen/runtime.ts    — compile-time selected runtime shell entrypoint
 ```
 
 - WXT handles manifest v2/v3 generation per build target.
@@ -290,7 +290,6 @@ src/
   offscreen/           index.html + browser-specific runtime shell
   content/
   ads_sandbox/
-  generated/           browser-selected stable shell entrypoints
   shared/
     dpi.ts
     feasibility.ts

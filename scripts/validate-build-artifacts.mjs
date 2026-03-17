@@ -86,8 +86,19 @@ function readManifest(rootDir) {
   return JSON.parse(readFileSync(path.join(rootDir, 'manifest.json'), 'utf8'));
 }
 
+function getLicensingMatchPattern() {
+  const baseUrl = process.env.SNAPVAULT_LICENSING_BASE_URL?.trim();
+  if (!baseUrl) {
+    return null;
+  }
+
+  const url = new URL(baseUrl);
+  return `${url.protocol}//${url.host}/*`;
+}
+
 function validateManifest(browser, rootDir, label) {
   const manifest = readManifest(rootDir);
+  const licensingMatchPattern = getLicensingMatchPattern();
 
   if (browser === 'firefox') {
     assert(manifest.manifest_version === 2, `${label} must use MV2 for Firefox`);
@@ -108,6 +119,12 @@ function validateManifest(browser, rootDir, label) {
         && manifest.browser_specific_settings.gecko.data_collection_permissions.required.includes('none'),
       `${label} must declare Firefox data collection permissions as none`,
     );
+    if (licensingMatchPattern) {
+      assert(
+        Array.isArray(manifest.permissions) && manifest.permissions.includes(licensingMatchPattern),
+        `${label} must include the licensing host permission ${licensingMatchPattern}`,
+      );
+    }
     return;
   }
 
@@ -120,6 +137,12 @@ function validateManifest(browser, rootDir, label) {
     manifest.background?.service_worker === 'background.js',
     `${label} must expose background.js as an MV3 service worker`,
   );
+  if (licensingMatchPattern) {
+    assert(
+      Array.isArray(manifest.host_permissions) && manifest.host_permissions.includes(licensingMatchPattern),
+      `${label} must include the licensing host permission ${licensingMatchPattern}`,
+    );
+  }
 }
 
 function validateBuildDirectory(browser) {

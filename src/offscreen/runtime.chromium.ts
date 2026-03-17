@@ -63,9 +63,3 @@ export function __resetOffscreenListenerForTests(): void {
   heldReferences.clear();
   listenerRegistered = false;
 }
-
-if (
-  (globalThis as { chrome?: { runtime?: RuntimeLike } }).chrome?.runtime?.onMessage
-) {
-  registerOffscreenMessageListener();
-}

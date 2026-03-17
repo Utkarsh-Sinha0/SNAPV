@@ -13,7 +13,7 @@ const APPROVED_WARNINGS = [
     message: 'Unsafe call to import for argument 0',
     filePattern: /^background\.js$/,
     line: 1,
-    column: 1579,
+    column: 1733,
     rationale: 'Background bootstrap dynamically imports the packaged content-script bundle on demand so Firefox tabs can receive extension page messages.',
   },
   {

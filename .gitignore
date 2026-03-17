@@ -8,3 +8,4 @@ __pycache__/
 *.pyc
 services/licensing/data/
 output/
+.cursor/

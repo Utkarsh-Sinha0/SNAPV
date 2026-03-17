@@ -1,4 +1,10 @@
 import { nukeOffscreenMemory } from './offscreen-manager';
+import {
+  clearCachedCaptures,
+  deleteCachedCapture,
+  getCachedCapture,
+  setCachedCapture,
+} from './capture-cache';
 import { sendToHeavyWorker } from '../shared/offscreen-adapter';
 import { getWebExtensionNamespace } from '../shared/webextension-namespace';
 import type {
@@ -52,7 +58,6 @@ type CaptureApis = {
   scripting: ScriptingLike;
 };
 
-const inMemoryCaptureCache = new Map<string, CaptureRecord>();
 const CAPTURE_VISIBLE_TAB_DELAY_MS = 550;
 const CONTENT_SCRIPT_ENTRY_PATH = 'content-scripts/content.js';
 const CONTENT_SCRIPT_READY_KEY = '__snapvaultContentScriptReady';
@@ -195,7 +200,7 @@ async function storeCaptureRecord(
   record: CaptureRecord,
   apis: CaptureApis,
 ): Promise<void> {
-  inMemoryCaptureCache.set(captureId, record);
+  setCachedCapture(captureId, record);
   const settings = await apis.storage.get(['privacySettings.storeCaptures', 'privacySettings']);
   if (!getPrivacyStoreCaptures(settings)) {
     return;
@@ -245,7 +250,7 @@ export async function handleGetCaptureDataUrl(
   payload: { captureId: string },
   apis: CaptureApis = getApis(),
 ): Promise<{ dataUrl?: string; metadata?: CaptureMetadata; sourceTabId?: number }> {
-  const cached = inMemoryCaptureCache.get(payload.captureId);
+  const cached = getCachedCapture(payload.captureId);
   if (cached) {
     return cached;
   }
@@ -256,7 +261,7 @@ export async function handleGetCaptureDataUrl(
     return {};
   }
 
-  inMemoryCaptureCache.set(payload.captureId, record);
+  setCachedCapture(payload.captureId, record);
   return record;
 }
 
@@ -264,7 +269,7 @@ export async function handleDeleteCapture(
   payload: { captureId: string },
   apis: CaptureApis = getApis(),
 ): Promise<{ ok: true }> {
-  inMemoryCaptureCache.delete(payload.captureId);
+  deleteCachedCapture(payload.captureId);
   await apis.storage.remove(createCaptureKey(payload.captureId));
   return { ok: true };
 }
@@ -289,7 +294,7 @@ export async function handlePurgeExpiredCaptures(
     }
 
     removedKeys.push(key);
-    inMemoryCaptureCache.delete(key.slice('capture:'.length));
+    deleteCachedCapture(key.slice('capture:'.length));
   }
 
   if (removedKeys.length > 0) {
@@ -665,7 +670,7 @@ export async function handleNukeAllCaptures(
   if (captureKeys.length > 0) {
     await apis.storage.remove(captureKeys);
   }
-  inMemoryCaptureCache.clear();
+  clearCachedCaptures();
   return { removedKeys: captureKeys };
 }
 
@@ -714,8 +719,4 @@ export function scheduleStartupCaptureTasks(
   queueMicrotask(() => {
     void handlePurgeExpiredCaptures(apis);
   });
-}
-
-export function __resetCaptureServiceForTests(): void {
-  inMemoryCaptureCache.clear();
 }

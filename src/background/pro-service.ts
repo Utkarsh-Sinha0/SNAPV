@@ -20,6 +20,8 @@ import type {
   RedactAnnotation,
 } from '../shared/types';
 
+declare const __SNAPVAULT_LICENSING_BASE_URL__: string;
+
 type RuntimeLike = {
   onMessage: {
     addListener: (
@@ -93,7 +95,6 @@ type CaptureBoardPayload = {
   spec: ExportSpec;
 };
 
-const DEFAULT_LICENSING_BASE_URL = 'http://127.0.0.1:8787';
 const LICENSE_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function getApis(): ProApis {
@@ -119,15 +120,26 @@ function getLicensingDeps(): LicensingDeps {
     SNAPVAULT_LICENSING_BASE_URL?: string;
     fetch?: FetchLike;
   };
+  const configuredBaseUrl =
+    globalConfig.SNAPVAULT_LICENSING_BASE_URL?.trim()
+    || (typeof __SNAPVAULT_LICENSING_BASE_URL__ === 'string'
+      ? __SNAPVAULT_LICENSING_BASE_URL__.trim()
+      : '');
 
   return {
     fetch: globalConfig.fetch ?? fetch,
     now: () => Date.now(),
-    baseUrl: globalConfig.SNAPVAULT_LICENSING_BASE_URL ?? DEFAULT_LICENSING_BASE_URL,
+    baseUrl: configuredBaseUrl,
   };
 }
 
 function buildLicensingUrl(baseUrl: string, path: string): string {
+  if (!baseUrl) {
+    throw new Error(
+      'Licensing base URL is not configured. Set SNAPVAULT_LICENSING_BASE_URL when building the extension.',
+    );
+  }
+
   return new URL(path, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
 }
 

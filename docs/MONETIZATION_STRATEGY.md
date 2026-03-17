@@ -97,7 +97,6 @@ Backend responsibilities (`services/licensing/server.mjs`):
 - `POST /v1/licensing/checkout` → returns Stripe Checkout Session URL.
 - `POST /v1/licensing/webhook` → Stripe event processing; marks license active.
 - `POST /v1/licensing/sync` → returns current license state for install ID.
-- `POST /v1/licensing/verify` → binds license key to install ID.
 
 Extension stores only:
 `licenseStatus`, `plan`, `expiresAt`, `installationId`, optional `licenseKey`.

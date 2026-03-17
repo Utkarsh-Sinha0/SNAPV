@@ -1,7 +1,11 @@
 import { request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLicensingServer } from '../../services/licensing/server.mjs';
+import {
+  createLicensingServer,
+  createRateLimiter,
+  validateRuntimeEnv,
+} from '../../services/licensing/server.mjs';
 
 function createDeps() {
   return {
@@ -241,5 +245,38 @@ describe('licensing server', () => {
       expiresAt: '2030-01-01T00:00:00.000Z',
       installationId: 'install-webhook',
     });
+  });
+
+  it('rate limits repeated requests from the same client', async () => {
+    const deps = {
+      ...createDeps(),
+      rateLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    };
+
+    await withServer(deps, async (baseUrl) => {
+      const firstResponse = await postJson(
+        `${baseUrl}/v1/licensing/sync`,
+        JSON.stringify({ installationId: 'install-rate-limit' }),
+      );
+      const secondResponse = await postJson(
+        `${baseUrl}/v1/licensing/sync`,
+        JSON.stringify({ installationId: 'install-rate-limit' }),
+      );
+
+      expect(firstResponse.status).toBe(200);
+      expect(secondResponse.status).toBe(429);
+      expect(secondResponse.json).toEqual({
+        error: 'Too many requests',
+      });
+    });
+  });
+
+  it('rejects missing production env vars before startup', () => {
+    expect(() =>
+      validateRuntimeEnv({
+        SNAPVAULT_ENV: 'production',
+        STRIPE_SECRET_KEY: 'sk_test',
+      }),
+    ).toThrow('Missing required licensing env vars');
   });
 });

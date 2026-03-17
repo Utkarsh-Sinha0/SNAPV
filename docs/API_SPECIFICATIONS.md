@@ -176,7 +176,6 @@ All endpoints are HTTPS. All calls are wrapped with `assertNoPixelPayload`.
 |----------|--------|---------|-------|
 | `/v1/licensing/checkout` | POST | `{ installationId, plan, country? }` | Returns Stripe checkout URL |
 | `/v1/licensing/sync` | POST | `{ installationId }` | Returns `LicenseState` |
-| `/v1/licensing/verify` | POST | `{ licenseKey, installationId }` | Binds key to install |
 | `/v1/licensing/webhook` | POST | Stripe event body | Backend only; HTTPS |
 
 No screenshot pixels. No page URLs. No content. Ever.

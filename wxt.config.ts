@@ -12,6 +12,15 @@ if (!supportedBrowsers.includes(requestedBrowser as SupportedBrowser)) {
 
 const targetBrowser = requestedBrowser as SupportedBrowser;
 const isFirefox = targetBrowser === 'firefox';
+const targetFamily = isFirefox ? 'firefox' : 'chromium';
+const rawLicensingBaseUrl = process.env.SNAPVAULT_LICENSING_BASE_URL?.trim();
+
+function toMatchPattern(baseUrl: string): string {
+  const url = new URL(baseUrl);
+  return `${url.protocol}//${url.host}/*`;
+}
+
+const licensingMatchPattern = rawLicensingBaseUrl ? toMatchPattern(rawLicensingBaseUrl) : undefined;
 
 const permissions = [
   'activeTab',
@@ -19,16 +28,20 @@ const permissions = [
   'downloads',
   'clipboardWrite',
   'scripting',
+  ...(isFirefox && licensingMatchPattern ? [licensingMatchPattern] : []),
   ...(process.env.SNAPVAULT_E2E === '1' ? ['tabs'] : []),
   ...(isFirefox ? [] : ['offscreen']),
 ];
 
-const hostPermissions = process.env.SNAPVAULT_E2E === '1' ? ['<all_urls>'] : undefined;
+const hostPermissions = [
+  ...(process.env.SNAPVAULT_E2E === '1' ? ['<all_urls>'] : []),
+  ...(licensingMatchPattern && !isFirefox ? [licensingMatchPattern] : []),
+];
 const manifest = {
   name: 'SnapVault',
   description: 'Local-first browser capture extension for screenshots and exports.',
   permissions,
-  ...(hostPermissions ? { host_permissions: hostPermissions } : {}),
+  ...(hostPermissions.length > 0 ? { host_permissions: hostPermissions } : {}),
   ...(!isFirefox ? { sandbox: { pages: ['ads_sandbox.html'] } } : {}),
   ...(isFirefox
     ? {
@@ -54,6 +67,8 @@ export default defineConfig({
   vite: () => ({
     define: {
       __SNAPVAULT_E2E__: JSON.stringify(process.env.SNAPVAULT_E2E === '1'),
+      __SNAPVAULT_LICENSING_BASE_URL__: JSON.stringify(rawLicensingBaseUrl ?? ''),
+      __SNAPVAULT_TARGET_FAMILY__: JSON.stringify(targetFamily),
     },
     build: {
       // The local ML/runtime assets intentionally produce large generated chunks, so keep

@@ -82,7 +82,8 @@ The background runtime is now split into shared core plus browser-specific shell
 - `src/background/background-shell.firefox.ts`
 - `src/shared/heavy-worker-client.chromium.ts`
 - `src/shared/heavy-worker-client.firefox.ts`
-- generated stable entrypoints in `src/generated/`
+- compile-time shell selection in `src/background/background-shell.ts`,
+  `src/shared/offscreen-adapter.ts`, and `src/offscreen/runtime.ts`
 
 `npm run sync:browser-shells` runs automatically for dev, typecheck, test, build, and zip
 commands so the repo stays single-source while each target gets its own shell wiring.

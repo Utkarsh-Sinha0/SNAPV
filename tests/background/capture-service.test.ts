@@ -9,7 +9,6 @@ vi.mock('../../src/background/offscreen-manager', () => ({
 }));
 
 import {
-  __resetCaptureServiceForTests,
   generateInstallationId,
   handleCaptureFullPage,
   handleOpenEditor,
@@ -25,6 +24,7 @@ import {
   registerCaptureMessageHandlers,
   scheduleStartupCaptureTasks,
 } from '../../src/background/capture-service';
+import { resetCaptureServiceStateForTests } from '../../src/background/capture-service.test-support';
 import { nukeOffscreenMemory } from '../../src/background/offscreen-manager';
 import { sendToHeavyWorker } from '../../src/shared/offscreen-adapter';
 import type { CaptureMetadata, ExportSpec } from '../../src/shared/types';
@@ -138,11 +138,11 @@ function createApis(initialStorage: Record<string, unknown> = {}) {
 describe('capture-service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    __resetCaptureServiceForTests();
+    resetCaptureServiceStateForTests();
   });
 
   afterEach(() => {
-    __resetCaptureServiceForTests();
+    resetCaptureServiceStateForTests();
   });
 
   it('generates and reuses an installation id', async () => {

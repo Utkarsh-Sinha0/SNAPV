@@ -198,10 +198,12 @@ docs/                     All product documentation (source of truth)
 |----------|--------|---------|---------|
 | `TARGET_BROWSER` | `chrome` / `firefox` / `edge` | `chrome` | WXT build + CI |
 | `SNAPVAULT_E2E` | `1` / unset | unset | Grants `<all_urls>` for e2e harness only |
+| `SNAPVAULT_LICENSING_BASE_URL` | absolute `https://...` URL | unset | Injected into extension builds; also adds licensing host permissions |
 | `STRIPE_SECRET_KEY` | Stripe key | — | `services/licensing/` only; never bundled in extension |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook secret | — | `services/licensing/` only |
 
 **STRIPE_* keys are NEVER bundled into extension code.** Backend only.
+Use [`services/licensing/.env.example`](/E:/SNAPV/services/licensing/.env.example) as the backend env template.
 
 ---
 

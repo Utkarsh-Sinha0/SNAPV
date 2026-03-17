@@ -2,8 +2,11 @@
   "name": "snapvault",
   "description": "Local-first browser capture extension for Chrome, Firefox, and Edge.",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
+  "workspaces": [
+    "services/licensing"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -18,7 +21,7 @@
     "build:edge": "cross-env TARGET_BROWSER=edge node scripts/build-target.mjs",
     "build:firefox": "cross-env TARGET_BROWSER=firefox node scripts/build-target.mjs",
     "build:all": "npm run build:chrome && npm run build:edge && npm run build:firefox",
-    "licensing:dev": "node services/licensing/server.mjs",
+    "licensing:dev": "npm --workspace services/licensing run dev",
     "test:audit:pixel-payload": "node scripts/audit-pixel-payload.mjs",
     "test:e2e:extension": "npm run test:e2e:extension:chromium && npm run test:e2e:extension:edge && npm run test:firefox:package",
     "test:e2e:extension:chrome": "npm run test:e2e:extension:chromium",
@@ -43,6 +46,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",
+    "@testing-library/preact": "^3.2.4",
+    "@testing-library/user-event": "^14.6.1",
     "cross-env": "^10.0.0",
     "happy-dom": "^20.0.1",
     "pdf-lib": "^1.17.1",
@@ -53,9 +58,6 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
-    "@testing-library/preact": "^3.2.4",
-    "@testing-library/user-event": "^14.6.1",
-    "preact": "^10.29.0",
-    "stripe": "^18.4.0"
+    "preact": "^10.29.0"
   }
 }

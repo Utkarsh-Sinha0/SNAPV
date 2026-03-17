@@ -50,7 +50,7 @@ Most screenshot tools stop at “take a picture.” SnapVault is built around **
 | Edge | Service worker + offscreen document | MV3 | `npm run build:edge` |
 | Firefox | Background-page-compatible shell | MV2 | `npm run build:firefox` |
 
-The browser split is implemented in [`wxt.config.ts`](./wxt.config.ts) and the generated runtime-shell wiring under [`src/generated/`](./src/generated/).
+The browser split is implemented in [`wxt.config.ts`](./wxt.config.ts) with compile-time browser-family wiring in [`src/background/background-shell.ts`](./src/background/background-shell.ts), [`src/shared/offscreen-adapter.ts`](./src/shared/offscreen-adapter.ts), and [`src/offscreen/runtime.ts`](./src/offscreen/runtime.ts).
 
 ## Workflow Diagram
 
@@ -148,7 +148,7 @@ flowchart LR
 | Firefox packaging checks | `web-ext` `^8.10.0` | [`package.json`](./package.json) |
 | PDF generation | `pdf-lib` `^1.17.1` | [`package.json`](./package.json) |
 | Local ML inference | `@huggingface/transformers` `^3.8.1` + local ONNX/WASM assets | [`package.json`](./package.json), [`public/assets/ml/`](./public/assets/ml/) |
-| Licensing backend | Stripe `^18.4.0` in local dev service | [`package.json`](./package.json), [`services/licensing/`](./services/licensing/) |
+| Licensing backend | Stripe `^18.4.0` in local dev service | [`services/licensing/package.json`](./services/licensing/package.json), [`services/licensing/`](./services/licensing/) |
 
 ## Security And Privacy Position
 
@@ -177,7 +177,6 @@ src/
   popup/          Fast capture entrypoint
   offscreen/      Chromium + Firefox heavy-work runtime shells
   shared/         Browser-agnostic core logic and adapters
-  generated/      Build-selected stable shell entrypoints
 services/
   licensing/      Local Stripe-backed licensing service for dev
 e2e/              Extension E2E suites
@@ -222,6 +221,16 @@ npm run build:firefox
 ```bash
 npm run build:all
 ```
+
+### Configure licensing for real extension builds
+
+```bash
+# Example production build
+set SNAPVAULT_LICENSING_BASE_URL=https://snapvault.app
+npm run build:chrome
+```
+
+The extension no longer falls back to `127.0.0.1`. Checkout and sync require an explicit licensing base URL at build time.
 
 ## Verification Commands
 

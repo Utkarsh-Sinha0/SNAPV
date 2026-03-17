@@ -13,9 +13,9 @@ vi.mock('../../src/shared/browser', () => ({
 }));
 
 import {
-  __resetCaptureServiceForTests,
   handleStoreCaptureDataUrl,
 } from '../../src/background/capture-service';
+import { resetCaptureServiceStateForTests } from '../../src/background/capture-service.test-support';
 import {
   handleExportCaptureBoard,
   handleGetLicenseState,
@@ -111,11 +111,11 @@ function createApis(initialStorage: Record<string, unknown> = {}) {
 describe('pro-service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    __resetCaptureServiceForTests();
+    resetCaptureServiceStateForTests();
   });
 
   afterEach(() => {
-    __resetCaptureServiceForTests();
+    resetCaptureServiceStateForTests();
   });
 
   it('returns a pro error before clean capture runs for free users', async () => {
