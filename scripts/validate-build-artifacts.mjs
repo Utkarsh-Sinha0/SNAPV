@@ -87,9 +87,21 @@ async function getPackageVersion() {
 
 function validateZipArchive(browser, version) {
   const browserDir = path.join(process.cwd(), 'dist', browser);
-  const zipPath = path.join(browserDir, `snapvault-${version}-${browser}.zip`);
+  const expectedZipName = `snapvault-${version}-${browser}.zip`;
+  const zipFiles = readdirSync(browserDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.zip'))
+    .map((entry) => entry.name);
 
-  assert(existsSync(zipPath), `ZIP archive not found: ${zipPath}`);
+  assert(
+    zipFiles.includes(expectedZipName),
+    `ZIP archive not found: ${path.join(browserDir, expectedZipName)}`,
+  );
+  assert(
+    zipFiles.length === 1,
+    `${browser} build directory contains unexpected ZIP archives: ${zipFiles.join(', ')}`,
+  );
+
+  const zipPath = path.join(browserDir, expectedZipName);
 
   const extractedDir = expandZipArchive(zipPath);
   try {

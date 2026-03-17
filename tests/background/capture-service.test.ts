@@ -86,7 +86,15 @@ function createApis(initialStorage: Record<string, unknown> = {}) {
   const scripting = {
     executeScript: vi.fn(async (injection: { args?: unknown[] }) => {
       if (injection.args?.[0] === '.scrollable') {
-        return [{ result: { scrollHeight: 1500, viewportHeight: 500, clientWidth: 640 } }];
+        return [{
+          result: {
+            scrollHeight: 1500,
+            viewportHeight: 500,
+            clientWidth: 640,
+            originalScrollTop: 40,
+            rect: { x: 30, y: 40, width: 640, height: 500 },
+          },
+        }];
       }
 
       if (typeof injection.args?.[0] === 'number') {
@@ -100,7 +108,15 @@ function createApis(initialStorage: Record<string, unknown> = {}) {
         return [{ result: { selector: injection.args[0], top: injection.args[1] } }];
       }
 
-      return [{ result: { ...baseMetadata, scrollHeight: 2400, viewportHeight: 800 } }];
+      return [{
+        result: {
+          ...baseMetadata,
+          scrollHeight: 2400,
+          viewportHeight: 800,
+          scrollX: 111,
+          scrollY: 222,
+        },
+      }];
     }),
   };
   const runtime = {
@@ -273,6 +289,11 @@ describe('capture-service', () => {
       expect.objectContaining({
         type: 'OFFSCREEN_ENCODE',
         rect: { x: 10, y: 20, width: 200, height: 100 },
+        metadata: expect.objectContaining({
+          cssWidth: 1200,
+          cssHeight: 800,
+          devicePixelRatio: 2,
+        }),
       }),
     );
     expect(stored.dataUrl).toBe('data:image/png;base64,cropped');
@@ -354,6 +375,7 @@ describe('capture-service', () => {
           lightMode: true,
           cssHeight: 2400,
         }),
+        stepPx: 1600,
       }),
     );
     expect(stored.metadata).toEqual(
@@ -362,16 +384,40 @@ describe('capture-service', () => {
         cssHeight: 2400,
       }),
     );
+    expect(apis.scripting.executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: [111, 222],
+      }),
+    );
   });
 
   it('captures a scroll container using the provided selector', async () => {
     const { apis } = createApis({ 'privacySettings.storeCaptures': true });
-    vi.mocked(sendToHeavyWorker).mockResolvedValue({
-      type: 'OFFSCREEN_RESULT',
-      id: '3',
-      ok: true,
-      data: { dataUrl: 'data:image/png;base64,container' },
-    });
+    vi.mocked(sendToHeavyWorker)
+      .mockResolvedValueOnce({
+        type: 'OFFSCREEN_RESULT',
+        id: '3a',
+        ok: true,
+        data: { dataUrl: 'data:image/png;base64,cropped-1' },
+      })
+      .mockResolvedValueOnce({
+        type: 'OFFSCREEN_RESULT',
+        id: '3b',
+        ok: true,
+        data: { dataUrl: 'data:image/png;base64,cropped-2' },
+      })
+      .mockResolvedValueOnce({
+        type: 'OFFSCREEN_RESULT',
+        id: '3c',
+        ok: true,
+        data: { dataUrl: 'data:image/png;base64,cropped-3' },
+      })
+      .mockResolvedValueOnce({
+        type: 'OFFSCREEN_RESULT',
+        id: '3d',
+        ok: true,
+        data: { dataUrl: 'data:image/png;base64,container' },
+      });
 
     const result = await handleCaptureScrollContainer(
       { tabId: 1, selector: '.scrollable', spec: baseSpec },
@@ -384,16 +430,37 @@ describe('capture-service', () => {
         args: ['.scrollable'],
       }),
     );
+    expect(sendToHeavyWorker).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        type: 'OFFSCREEN_ENCODE',
+        rect: { x: 30, y: 40, width: 640, height: 500 },
+        metadata: expect.objectContaining({
+          cssWidth: 1200,
+          cssHeight: 800,
+          devicePixelRatio: 2,
+        }),
+      }),
+    );
     expect(sendToHeavyWorker).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'OFFSCREEN_STITCH',
-        selector: '.scrollable',
+        segments: [
+          'data:image/png;base64,cropped-1',
+          'data:image/png;base64,cropped-2',
+          'data:image/png;base64,cropped-3',
+        ],
       }),
     );
     expect(stored.metadata).toEqual(
       expect.objectContaining({
         cssWidth: 640,
         cssHeight: 1500,
+      }),
+    );
+    expect(apis.scripting.executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ['.scrollable', 40, 'restore-scroll-position'],
       }),
     );
   });

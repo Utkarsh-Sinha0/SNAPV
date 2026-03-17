@@ -33,16 +33,20 @@ import { processHeavyWorkerMessage } from '../../src/offscreen/processor';
 class OffscreenCanvasMock {
   width: number;
   height: number;
+  context: {
+    drawImage: ReturnType<typeof vi.fn>;
+  };
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
+    this.context = {
+      drawImage: vi.fn(),
+    };
   }
 
   getContext() {
-    return {
-      drawImage: () => undefined,
-    };
+    return this.context;
   }
 }
 
@@ -229,6 +233,57 @@ describe('processHeavyWorkerMessage', () => {
 
     expect(encodeJpegTargetSize).toHaveBeenCalledTimes(1);
     expect(encodeJpegAtQuality).not.toHaveBeenCalled();
+  });
+
+  it('scales crop rectangles from css pixels to bitmap pixels on HiDPI captures', async () => {
+    const canvases: OffscreenCanvasMock[] = [];
+    const bitmap = { width: 800, height: 400 };
+    vi.stubGlobal('OffscreenCanvas', class extends OffscreenCanvasMock {
+      constructor(width: number, height: number) {
+        super(width, height);
+        canvases.push(this);
+      }
+    });
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap));
+
+    const result = await processHeavyWorkerMessage(
+      {
+        id: '5b',
+        type: 'OFFSCREEN_ENCODE',
+        dataUrl: 'data:image/png;base64,AAAA',
+        rect: {
+          x: 10,
+          y: 20,
+          width: 200,
+          height: 100,
+        },
+        metadata: {
+          cssWidth: 400,
+          cssHeight: 200,
+          devicePixelRatio: 2,
+          screenLeft: 0,
+          screenTop: 0,
+          lightMode: false,
+          capturedAt: 0,
+        },
+      },
+      { remember: () => undefined, clear: () => undefined },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(canvases.at(-1)?.width).toBe(400);
+    expect(canvases.at(-1)?.height).toBe(200);
+    expect(canvases.at(-1)?.context.drawImage).toHaveBeenCalledWith(
+      bitmap,
+      20,
+      40,
+      400,
+      200,
+      0,
+      0,
+      400,
+      200,
+    );
   });
 
   it('builds pdf artifacts from multiple pages', async () => {

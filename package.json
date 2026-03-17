@@ -22,9 +22,9 @@
     "test:run": "vitest run",
     "typecheck": "wxt prepare && tsc --noEmit",
     "validate:artifacts": "node scripts/validate-build-artifacts.mjs",
-    "zip": "wxt zip",
-    "zip:chrome": "cross-env TARGET_BROWSER=chrome wxt zip -b chrome",
-    "zip:firefox": "cross-env TARGET_BROWSER=firefox wxt zip -b firefox",
+    "zip": "node scripts/zip-target.mjs",
+    "zip:chrome": "cross-env TARGET_BROWSER=chrome node scripts/zip-target.mjs",
+    "zip:firefox": "cross-env TARGET_BROWSER=firefox node scripts/zip-target.mjs",
     "postinstall": "wxt prepare"
   },
   "devDependencies": {

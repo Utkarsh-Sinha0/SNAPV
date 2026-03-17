@@ -112,6 +112,57 @@ async function cropDataUrl(dataUrl: string, rect: RectLike): Promise<string> {
   return blobToDataUrl(blob);
 }
 
+function scaleRectToBitmap(
+  rect: RectLike,
+  bitmap: ImageBitmap,
+  metadata?: CaptureMetadata,
+): RectLike {
+  const scaleX =
+    metadata?.cssWidth && metadata.cssWidth > 0
+      ? bitmap.width / metadata.cssWidth
+      : 1;
+  const scaleY =
+    metadata?.cssHeight && metadata.cssHeight > 0
+      ? bitmap.height / metadata.cssHeight
+      : 1;
+
+  const x = Math.max(0, Math.round(rect.x * scaleX));
+  const y = Math.max(0, Math.round(rect.y * scaleY));
+  const width = Math.max(1, Math.round(rect.width * scaleX));
+  const height = Math.max(1, Math.round(rect.height * scaleY));
+
+  return {
+    x,
+    y,
+    width: Math.min(width, Math.max(1, bitmap.width - x)),
+    height: Math.min(height, Math.max(1, bitmap.height - y)),
+  };
+}
+
+async function cropDataUrlForMetadata(
+  dataUrl: string,
+  rect: RectLike,
+  metadata?: CaptureMetadata,
+): Promise<string> {
+  const bitmap = await dataUrlToImageBitmap(dataUrl);
+  const scaledRect = scaleRectToBitmap(rect, bitmap, metadata);
+  const canvas = new OffscreenCanvas(scaledRect.width, scaledRect.height);
+  getContext(canvas).drawImage(
+    bitmap,
+    scaledRect.x,
+    scaledRect.y,
+    scaledRect.width,
+    scaledRect.height,
+    0,
+    0,
+    scaledRect.width,
+    scaledRect.height,
+  );
+
+  const blob = await encodePng(canvas);
+  return blobToDataUrl(blob);
+}
+
 async function stitchDataUrls(
   segments: string[],
   metadata: CaptureMetadata,
@@ -194,9 +245,10 @@ export async function processHeavyWorkerMessage(
 
     if (message.type === 'OFFSCREEN_ENCODE') {
       if (message.rect) {
-        const dataUrl = await cropDataUrl(
+        const dataUrl = await cropDataUrlForMetadata(
           String(message.dataUrl),
           message.rect as RectLike,
+          message.metadata as CaptureMetadata | undefined,
         );
         refs.clear();
         return {

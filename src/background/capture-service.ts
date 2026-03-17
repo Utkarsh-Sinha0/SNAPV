@@ -338,6 +338,7 @@ export async function handleCaptureRegion(
     dataUrl: visible.dataUrl,
     rect: payload.rect,
     spec: payload.spec,
+    metadata: visible.metadata,
   });
   const dataUrl = await getWorkerDataUrl(cropped);
   const regionMetadata: CaptureMetadata = {
@@ -428,28 +429,42 @@ export async function handleCaptureFullPage(
     func: () => ({
       scrollHeight: document.body.scrollHeight,
       viewportHeight: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
     }),
   });
-  const { scrollHeight, viewportHeight } = measurement.result as {
+  const { scrollHeight, viewportHeight, scrollX, scrollY } = measurement.result as {
     scrollHeight: number;
     viewportHeight: number;
+    scrollX: number;
+    scrollY: number;
   };
   const positions = buildScrollPositions(scrollHeight, viewportHeight);
   const segments: string[] = [];
 
-  for (const top of positions) {
+  try {
+    for (const top of positions) {
+      await apis.scripting.executeScript({
+        target: { tabId: payload.tabId },
+        func: (position) => {
+          window.scrollTo(0, position as number);
+          return position;
+        },
+        args: [top],
+      });
+      segments.push(await apis.tabs.captureVisibleTab(undefined, { format: 'png' }));
+      if (top !== positions[positions.length - 1]) {
+        await delay(CAPTURE_VISIBLE_TAB_DELAY_MS);
+      }
+    }
+  } finally {
     await apis.scripting.executeScript({
       target: { tabId: payload.tabId },
-      func: (position) => {
-        window.scrollTo(0, position as number);
-        return position;
+      func: (x, y) => {
+        window.scrollTo((x as number) ?? 0, (y as number) ?? 0);
       },
-      args: [top],
+      args: [scrollX, scrollY],
     });
-    segments.push(await apis.tabs.captureVisibleTab(undefined, { format: 'png' }));
-    if (top !== positions[positions.length - 1]) {
-      await delay(CAPTURE_VISIBLE_TAB_DELAY_MS);
-    }
   }
 
   const captureId = createCaptureId();
@@ -463,7 +478,7 @@ export async function handleCaptureFullPage(
     segments,
     metadata: fullPageMetadata,
     spec: payload.spec,
-    stepPx: viewportHeight,
+    stepPx: Math.round(viewportHeight * metadata.devicePixelRatio),
     overlapPx: 0,
   });
 
@@ -491,59 +506,96 @@ export async function handleCaptureScrollContainer(
       if (!element) {
         throw new Error('Scrollable container not found');
       }
+      const rect = element.getBoundingClientRect();
 
       return {
         scrollHeight: element.scrollHeight,
         viewportHeight: element.clientHeight,
         clientWidth: element.clientWidth,
+        originalScrollTop: element.scrollTop,
+        rect: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
       };
     },
     args: [payload.selector],
   });
 
-  const { scrollHeight, viewportHeight, clientWidth } = measurement.result as {
+  const { scrollHeight, viewportHeight, clientWidth, originalScrollTop, rect } = measurement.result as {
     scrollHeight: number;
     viewportHeight: number;
     clientWidth?: number;
+    originalScrollTop: number;
+    rect: RectLike;
   };
   const positions = buildScrollPositions(scrollHeight, viewportHeight);
   const segments: string[] = [];
+  const viewportMetadata = await getCaptureMetadata(payload.tabId, false, apis);
 
-  for (const top of positions) {
+  try {
+    for (const top of positions) {
+      await apis.scripting.executeScript({
+        target: { tabId: payload.tabId },
+        func: (selector, position) => {
+          const element = document.querySelector(selector as string) as HTMLElement | null;
+          if (!element) {
+            throw new Error('Scrollable container not found');
+          }
+
+          element.scrollTop = position as number;
+          return { selector, top: element.scrollTop };
+        },
+        args: [payload.selector, top],
+      });
+      const segment = await apis.tabs.captureVisibleTab(undefined, { format: 'png' });
+      const cropped = await sendToHeavyWorker<HeavyWorkerResult>({
+        type: 'OFFSCREEN_ENCODE',
+        dataUrl: segment,
+        rect,
+        metadata: viewportMetadata,
+      });
+      segments.push(await getWorkerDataUrl(cropped));
+      if (top !== positions[positions.length - 1]) {
+        await delay(CAPTURE_VISIBLE_TAB_DELAY_MS);
+      }
+    }
+  } finally {
     await apis.scripting.executeScript({
       target: { tabId: payload.tabId },
-      func: (selector, position) => {
-        const element = document.querySelector(selector as string) as HTMLElement | null;
-        if (!element) {
-          throw new Error('Scrollable container not found');
+      func: (selector, position, restoreMode) => {
+        if (restoreMode !== 'restore-scroll-position') {
+          return;
         }
 
-        element.scrollTop = position as number;
-        return { selector, top: element.scrollTop };
+        const element = document.querySelector(selector as string) as HTMLElement | null;
+        if (element) {
+          element.scrollTop = position as number;
+        }
       },
-      args: [payload.selector, top],
+      args: [payload.selector, originalScrollTop, 'restore-scroll-position'],
     });
-    segments.push(await apis.tabs.captureVisibleTab(undefined, { format: 'png' }));
-    if (top !== positions[positions.length - 1]) {
-      await delay(CAPTURE_VISIBLE_TAB_DELAY_MS);
-    }
   }
 
   const captureId = createCaptureId();
-  const metadata = await getCaptureMetadata(payload.tabId, false, apis);
   const scrollMetadata: CaptureMetadata = {
-    ...metadata,
-    cssWidth: typeof clientWidth === 'number' ? clientWidth : metadata.cssWidth,
-    cssHeight: Math.max(metadata.cssHeight, scrollHeight),
+    ...viewportMetadata,
+    cssWidth: typeof rect.width === 'number'
+      ? rect.width
+      : typeof clientWidth === 'number'
+        ? clientWidth
+        : viewportMetadata.cssWidth,
+    cssHeight: scrollHeight,
   };
   const stitched = await sendToHeavyWorker<HeavyWorkerResult>({
     type: 'OFFSCREEN_STITCH',
     segments,
     metadata: scrollMetadata,
     spec: payload.spec,
-    stepPx: viewportHeight,
+    stepPx: Math.round(viewportHeight * viewportMetadata.devicePixelRatio),
     overlapPx: 0,
-    selector: payload.selector,
   });
 
   await handleStoreCaptureDataUrl(
