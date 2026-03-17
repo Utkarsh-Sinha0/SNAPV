@@ -1,6 +1,6 @@
 # DEPLOYMENT.md
 # SnapVault — Store Launch + Positioning
-# Version: 3.0.0 | Last Updated: 2026-03-16
+# Version: 3.1.0 | Last Updated: 2026-03-17
 
 ---
 
@@ -82,17 +82,21 @@ page (Firefox). Zero feature delta for the user.
 - [ ] Test full checkout → webhook → license sync flow end-to-end.
 - [ ] `POST /v1/licensing/checkout` returns valid Stripe Checkout URL.
 
-**Extension:**
-- [ ] `npm run build:chrome` passes with zero TypeScript errors.
-- [ ] `npm run build:firefox` passes with zero TypeScript errors.
-- [ ] All Playwright e2e tests pass on Chromium and Firefox.
-- [ ] `assertNoPixelPayload` static audit clean.
-- [ ] ML model (`src/assets/ml/redaction.onnx`) bundled; no CDN call in test.
-- [ ] Offscreen idle-close test passes.
-- [ ] "Nuke everything" test passes (storage + offscreen cleared).
-- [ ] Light mode stitch test passes (no overlap correction, correct output).
-- [ ] Multi-monitor DPR test: DPR=2 capture produces correct CSS-pixel output.
-- [ ] Preset import/export round-trip test passes.
+**Extension (release-ready as of 2026-03-17):**
+- [x] `npm run build:chrome` passes with zero TypeScript errors.
+- [x] `npm run build:edge` passes with zero TypeScript errors.
+- [x] `npm run build:firefox` passes with zero TypeScript errors.
+- [x] `npm run test:perf:extension:chromium` passes.
+- [x] `npm run test:perf:extension:edge` passes.
+- [x] Playwright extension e2e passes on Chromium and Edge.
+- [x] Firefox package validation (`npm run test:firefox:package`) passes.
+- [x] `assertNoPixelPayload` static audit clean.
+- [x] ML payload under `public/assets/ml/` is bundled; no CDN call in test.
+- [x] Offscreen idle-close test passes.
+- [x] "Nuke everything" test passes (storage + offscreen cleared).
+- [x] Light mode stitch test passes (no overlap correction, correct output).
+- [x] Multi-monitor DPR test: DPR=2 capture produces correct CSS-pixel output.
+- [x] Preset import/export round-trip test passes.
 
 **Store listing:**
 - [ ] All 6 screenshots prepared.
@@ -129,3 +133,4 @@ page (Firefox). Zero feature delta for the user.
   - ProductHunt: "the screenshot tool that warns you before you waste time"
 - Preset JSON community: seed with 5–10 presets on GitHub before launch day.
   Link from Options page preset importer.
+Firefox submission readiness is gated by `npm run test:firefox:package`, not a manual `web-ext lint` invocation. That command verifies the packaged archive and checks the accepted Mozilla lint baseline described in [FIREFOX_LINT_BASELINE.md](/E:/SNAPV/docs/FIREFOX_LINT_BASELINE.md).

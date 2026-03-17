@@ -162,6 +162,16 @@ export function PopupApp({ apis }: PopupAppProps) {
 
     try {
       const result = await runCapture(command, tabId, spec, metadata, popupApis);
+      if (result.pending) {
+        setCaptureId(null);
+        setStatusMessage('Select a region on the page to finish the capture.');
+        return;
+      }
+
+      if (!result.captureId) {
+        throw new Error('Capture did not return an id.');
+      }
+
       setCaptureId(result.captureId);
       setLastCaptureCommand(command);
     } catch (error) {

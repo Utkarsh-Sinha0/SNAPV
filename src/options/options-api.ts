@@ -1,4 +1,5 @@
 import { DEFAULT_PRESETS, validateExportSpecPreset } from '../shared/export-spec';
+import { getWebExtensionNamespace } from '../shared/webextension-namespace';
 import type { ExportSpecPreset, LicenseState } from '../shared/types';
 
 export type PrivacySettingsState = {
@@ -24,16 +25,14 @@ export type OptionsApis = {
 const PRESET_STORAGE_KEY = 'options.presets';
 
 function getChromeApis(): OptionsApis {
-  const chromeLike = (globalThis as unknown as {
-    chrome: {
-      runtime: RuntimeLike;
-      storage: { local: StorageAreaLike };
-    };
-  }).chrome;
+  const extensionApi = getWebExtensionNamespace<{
+    runtime: RuntimeLike;
+    storage: { local: StorageAreaLike };
+  }>();
 
   return {
-    runtime: chromeLike.runtime,
-    storage: chromeLike.storage.local,
+    runtime: extensionApi.runtime,
+    storage: extensionApi.storage.local,
   };
 }
 

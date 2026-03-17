@@ -1,18 +1,22 @@
-import { initializeHeavyWorkerMessaging } from '../shared/offscreen-adapter';
 import {
   registerCaptureMessageHandlers,
   scheduleStartupCaptureTasks,
 } from './capture-service';
+import { registerBackgroundE2EBridge } from './e2e-bridge';
+import { registerBackgroundShell } from './background-shell';
 import { registerExportMessageHandlers } from './export-service';
 import { registerProMessageHandlers } from './pro-service';
-import { registerBackgroundPageMessageListener } from './background-page';
+
+declare const __SNAPVAULT_E2E__: boolean;
 
 export default defineBackground(() => {
-  initializeHeavyWorkerMessaging();
+  registerBackgroundShell();
   registerCaptureMessageHandlers();
   registerExportMessageHandlers();
   registerProMessageHandlers();
-  registerBackgroundPageMessageListener();
+  if (__SNAPVAULT_E2E__) {
+    registerBackgroundE2EBridge();
+  }
   scheduleStartupCaptureTasks();
 
   console.log('SW started');

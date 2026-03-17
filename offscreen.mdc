@@ -1,0 +1,93 @@
+---
+description: Rules for the offscreen document (src/offscreen/**). Applies automatically to all offscreen files. Read before generating any canvas, WASM, or encode code.
+globs: ["src/offscreen/**", "src/shared/stitch.ts", "src/shared/encode.ts", "src/shared/pdf.ts", "src/shared/redact.ts"]
+alwaysApply: false
+---
+
+# Offscreen Document Rules
+
+## Why this file exists
+Chrome MV3 service workers cannot use canvas reliably. ALL canvas, WASM,
+and heavy DOM work must live in `src/offscreen/offscreen.ts` and the shared
+modules it imports. If you are writing canvas code anywhere else → stop and
+move it here.
+
+## Offscreen document constraints
+- This is not a UI page. It has no visible content. Never add DOM elements
+  that the user would interact with.
+- Never write to `IndexedDB` or `localStorage` from offscreen.ts.
+- Never call `fetch`, `XMLHttpRequest`, or `WebSocket` from offscreen.ts.
+  If a function here needs data from the network, you have made an
+  architectural error. Go back and redesign.
+- Always call `assertNoPixelPayload(payload)` before any data leaves this
+  module, even though no network calls should exist. Belt and suspenders.
+- Every `ImageBitmap` or `OffscreenCanvas` created here must be explicitly
+  closed/released after use: `bitmap.close()`. Memory leaks in the offscreen
+  document persist until `chrome.offscreen.closeDocument()` is called.
+
+## Message handler pattern (mandatory)
+Every handler must:
+1. Destructure the message payload with explicit types — never `msg: any`.
+2. Return a `Result<T>` — never throw across the message boundary.
+3. Call `sendResponse` synchronously or return `true` to keep the channel
+   open for async response.
+
+```ts
+// CORRECT pattern
+chrome.runtime.onMessage.addListener((msg: OffscreenMessage, _sender, sendResponse) => {
+  if (msg.type === 'OFFSCREEN_ENCODE') {
+    handleEncode(msg)
+      .then(sendResponse)
+      .catch(err => sendResponse({ ok: false, error: String(err) }));
+    return true; // keep channel open for async
+  }
+});
+```
+
+## Correlation IDs (mandatory)
+Every request from the SW includes `id: string` (UUID).
+Every response from offscreen must echo `id` back.
+The SW uses `id` to resolve the correct pending Promise.
+Never respond without echoing `id`.
+
+## Memory cleanup (mandatory)
+```ts
+// After every stitch or encode operation:
+for (const bmp of bitmaps) bmp.close();
+canvas = null; // release reference
+```
+The `OFFSCREEN_CLEAR_MEMORY` handler must set all module-level image caches
+to `null` and close all open `ImageBitmap` handles.
+
+## OffscreenCanvas vs HTMLCanvasElement
+- Use `OffscreenCanvas` not `document.createElement('canvas')`.
+  Reason: OffscreenCanvas doesn't require a DOM context.
+- `OffscreenCanvas.convertToBlob()` is async — always await it.
+- Never `canvas.toDataURL()` — it's synchronous and blocks the thread.
+  Use `convertToBlob()` → `FileReader` → base64 if you need a dataURL.
+
+## Stitch algorithm rules
+- Overlap correction (light mode OFF): use row-hash comparison.
+  `computeRowHash` must be a pure function taking a pixel row as
+  `Uint8ClampedArray` — testable without a canvas.
+- Light mode ON: use nominal `stepPx` directly. No hash. Faster.
+- Never silently choose one mode over the other based on internal heuristics.
+  The `lightMode` flag from `CaptureMetadata` is the only source of truth.
+
+## WASM / Transformers.js (ml-redaction.ts)
+- `env.allowRemoteModels = false` must be the FIRST line of module setup.
+  If this line is missing, CI will catch it and the build will fail.
+- `env.localModelPath` must be set to `chrome.runtime.getURL('assets/ml/')`.
+  Never hardcode a path string.
+- Lazy-load: the model is NOT loaded at module import time. It is loaded on
+  the first `runMlRedaction` call. Use a module-level `let detector = null`
+  sentinel.
+- After inference: release the input ImageBitmap with `.close()`. The
+  detector itself stays in memory (it's expensive to reload); everything
+  else is released.
+
+## Firefox compat
+`chrome.offscreen` is not available on Firefox. The `offscreen-adapter.ts`
+module handles routing. This file should never check `isFirefox()` — that
+check belongs in the adapter, not here. Write offscreen.ts as if Chrome-only;
+the adapter provides the abstraction.

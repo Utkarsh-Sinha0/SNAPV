@@ -279,7 +279,9 @@ describe('capture-service', () => {
       },
       apis,
     );
-    const stored = await handleGetCaptureDataUrl(result, apis);
+    expect(result.captureId).toBeDefined();
+
+    const stored = await handleGetCaptureDataUrl({ captureId: result.captureId! }, apis);
 
     expect(apis.tabs.sendMessage).toHaveBeenCalledWith(
       1,
@@ -311,6 +313,40 @@ describe('capture-service', () => {
         captureMode: 'region',
       }),
     );
+  });
+
+  it('starts interactive region selection before the rect is known', async () => {
+    const { apis } = createApis();
+
+    const result = await handleCaptureRegion(
+      {
+        tabId: 5,
+        spec: baseSpec,
+        viewportRect: { x: 0, y: 0, width: 1200, height: 800 },
+      },
+      apis,
+    );
+
+    expect(result).toEqual({ pending: true });
+    expect(apis.scripting.executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { tabId: 5 },
+        args: [
+          'chrome-extension://snapvault/content-scripts/content.js',
+          '__snapvaultContentScriptReady',
+        ],
+      }),
+    );
+    expect(apis.tabs.sendMessage).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({
+        type: 'CAPTURE_REGION',
+        tabId: 5,
+        spec: baseSpec,
+        viewportRect: { x: 0, y: 0, width: 1200, height: 800 },
+      }),
+    );
+    expect(sendToHeavyWorker).not.toHaveBeenCalled();
   });
 
   it('opens the editor in a new tab for a capture id', async () => {

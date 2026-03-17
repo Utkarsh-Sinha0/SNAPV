@@ -25,6 +25,7 @@ export default defineConfig({
       name: 'chromium-extension',
       use: {
         ...devices['Desktop Chrome'],
+        channel: 'chromium',
       },
       grepInvert: /@hidpi/,
     },
@@ -32,6 +33,24 @@ export default defineConfig({
       name: 'chromium-extension-hidpi',
       use: {
         ...devices['Desktop Chrome'],
+        channel: 'chromium',
+        deviceScaleFactor: 2,
+      },
+      grep: /@hidpi/,
+    },
+    {
+      name: 'edge-extension',
+      use: {
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
+      },
+      grepInvert: /@hidpi/,
+    },
+    {
+      name: 'edge-extension-hidpi',
+      use: {
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         deviceScaleFactor: 2,
       },
       grep: /@hidpi/,

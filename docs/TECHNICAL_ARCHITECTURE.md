@@ -1,6 +1,6 @@
 # TECHNICAL_ARCHITECTURE.md
 # SnapVault — Architecture (Tier 1 & 2, Cross-Browser)
-# Version: 3.0.0 | Last Updated: 2026-03-16
+# Version: 3.1.0 | Last Updated: 2026-03-17
 
 ---
 
@@ -15,9 +15,8 @@
 │  (service        Sends messages; holds lightweight state.           │
 │   worker)        Does NOT touch canvas, DOM, or WASM.               │
 ├─────────────────────────────────────────────────────────────────────┤
-│  offscreen/      offscreen.html + offscreen.ts  ← NEW (2026)        │
-│                  All heavy work: canvas stitch, JPEG encode,         │
-│                  PDF build, Transformers.js ONNX inference.          │
+│  offscreen/      Chromium offscreen runtime shell                    │
+│                  All heavy work routes into the shared processor.    │
 │                  Created on-demand; closed after idle.               │
 ├─────────────────────────────────────────────────────────────────────┤
 │  content/        On-demand injection: region select overlay,         │
@@ -58,12 +57,12 @@ SW receives capture trigger
         reasons: ['DOM_PARSING', 'BLOBS'], justification: '...' })
         (no-op if already open)
   └─> SW sends OFFSCREEN_* message with image data
-  └─> offscreen.ts processes → returns result via chrome.runtime.sendMessage
+  └─> Chromium runtime shell invokes shared heavy-worker core → returns result via chrome.runtime.sendMessage
   └─> SW auto-closes document after OFFSCREEN_IDLE_TIMEOUT_MS (default 30 000)
   └─> "Nuke everything" sends OFFSCREEN_CLEAR_MEMORY → force-closes immediately
 ```
 
-### What runs in offscreen.ts
+### What runs in the Chromium offscreen runtime
 | Task | Reason flag |
 |------|-------------|
 | Full-page segment stitch | `BLOBS` |
@@ -74,6 +73,7 @@ SW receives capture trigger
 
 Full offscreen message API in `API_SPECIFICATIONS.md` §5.
 Full implementation guide in `OFFSCREEN_ARCHITECTURE.md`.
+Shared heavy-work implementation lives in `src/shared/heavy-worker-service.ts`.
 
 ### Firefox / Edge compat
 `chrome.offscreen` is Chrome 116+. Firefox does not implement it yet.
@@ -81,6 +81,8 @@ Full implementation guide in `OFFSCREEN_ARCHITECTURE.md`.
   using WXT's `browser` abstraction.
 - `src/shared/offscreen-adapter.ts` exposes a single `sendToHeavyWorker(msg)` function that
   resolves to offscreen on Chrome/Edge and to background-page on Firefox.
+- The stable adapter path is generated per target: `src/generated/heavy-worker-client.ts`
+  points at either `heavy-worker-client.chromium.ts` or `heavy-worker-client.firefox.ts`.
 - No feature-contract changes; same message shapes.
 
 ---
@@ -104,7 +106,9 @@ Full implementation guide in `OFFSCREEN_ARCHITECTURE.md`.
 browser: process.env.TARGET_BROWSER ?? 'chrome',  // chrome | firefox | edge
 manifestVersion: process.env.TARGET_BROWSER === 'firefox' ? 2 : 3,
 ```
-All builds share the same `src/`; WXT handles manifest generation per target.
+All builds share the same `src/`; WXT handles manifest generation per target, and
+`scripts/sync-browser-shells.mjs` keeps the generated shell entrypoints aligned with the
+selected browser before dev/build/test commands run.
 
 ---
 
@@ -127,7 +131,7 @@ Service Worker (orchestration)
   └─ Sends OFFSCREEN_STITCH (or OFFSCREEN_ENCODE_ONLY for visible)
 
   ▼
-offscreen.ts (heavy work)
+Chromium offscreen runtime + shared heavy-worker core
   ├─ Stitch segments with overlap correction (unless light mode)
   ├─ Apply DPI normalization (devicePixelRatio from capture metadata)
   ├─ Apply ExportSpec: resize → encode PNG/JPEG/PDF
@@ -217,15 +221,16 @@ ExportSpec JSON is the shareable unit of value:
 
 | Module | Load trigger | Location |
 |--------|-------------|----------|
-| Transformers.js ONNX redaction | First `RUN_AUTO_REDACTION` | offscreen.ts import() |
+| Transformers.js ONNX redaction | First `RUN_ML_REDACTION` | heavy-worker lazy import |
 | DOM element isolation renderer | First `PICK_DOM_ELEMENT` | editor lazy chunk |
 | Clean capture selector engine | First `TOGGLE_CLEAN_CAPTURE` | content lazy chunk |
 | True 1× / HiDPI normalization | First `APPLY_EXPORT_SPEC` with `dpiPolicy: 'css1x'` (Pro) | offscreen encode path |
 | Multi-capture board | First board workflow open (Pro) | editor lazy chunk |
 | Responsive multi-capture pack | First pro workflow open | editor lazy chunk |
 
-WASM/ONNX model weights are bundled in `src/assets/ml/` and referenced via a local URL
-(no CDN fetch). Total size < 5 MB compressed. Gated behind Pro license check before load.
+WASM/ONNX model weights are bundled in `public/assets/ml/` and referenced via local URLs
+(no CDN fetch). The current local payload includes the quantized `redaction` model plus
+the bundled ONNX Runtime WASM binary. Gated behind Pro license check before load.
 
 ---
 
@@ -258,12 +263,17 @@ No `postMessage` bridge that passes pixels. Sandbox page cannot reach `chrome.*`
 
 ```
 src/shared/browser.ts       — wraps chrome.* / browser.* via webextension-polyfill
-src/shared/offscreen-adapter.ts — routes heavy work to offscreen (Chrome/Edge) or
-                                  background page (Firefox)
+src/shared/offscreen-adapter.ts — stable heavy-worker client entrypoint
+src/background/background-shell.chromium.ts — Chromium shell bootstrap
+src/background/background-shell.firefox.ts  — Firefox shell bootstrap
+src/generated/*            — generated shell aliases for the active target
 ```
 
 - WXT handles manifest v2/v3 generation per build target.
-- Feature detection for `chrome.offscreen` at runtime; graceful fallback logged to console.
+- Shared logic stays in one repo, while browser-specific shells keep Chrome/Edge and
+  Firefox bootstraps out of each other's entrypoints.
+- Feature detection for `chrome.offscreen` remains in Chromium runtime code for offscreen
+  lifecycle management and local fallback handling.
 - Downloads-based save flow as universal baseline; Clipboard API gated behind detection.
 - Chrome Android: not supported (extensions not available).
 
@@ -277,15 +287,18 @@ src/
   options/
   editor/
   background/          service worker
-  offscreen/           offscreen.html + offscreen.ts  ← NEW
+  offscreen/           index.html + browser-specific runtime shell
   content/
   ads_sandbox/
+  generated/           browser-selected stable shell entrypoints
   shared/
     dpi.ts
     feasibility.ts
     export-spec.ts
     browser.ts
     offscreen-adapter.ts
+    heavy-worker-client.chromium.ts
+    heavy-worker-client.firefox.ts
     assert-no-pixel-payload.ts
   assets/
     ml/               ONNX model weights (Pro, lazy)

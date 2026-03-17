@@ -1,6 +1,8 @@
 import { handleGetCaptureDataUrl } from './capture-service';
 import { sendToHeavyWorker } from '../shared/offscreen-adapter';
+import { isFirefox } from '../shared/browser';
 import { checkFeasibility } from '../shared/feasibility';
+import { getWebExtensionNamespace } from '../shared/webextension-namespace';
 import type {
   CaptureMetadata,
   ExportArtifact,
@@ -42,19 +44,29 @@ type ClipboardLike = {
   write: (items: unknown[]) => Promise<void>;
 };
 
+type DownloadTarget = {
+  url: string;
+  cleanup?: () => void;
+};
+
+type CachedExportArtifact = {
+  sourceDataUrl: string;
+  artifact: ExportArtifact;
+};
+
+const exportArtifactCache = new Map<string, CachedExportArtifact>();
+
 function getApis(): ExportApis {
-  const chromeLike = (globalThis as unknown as {
-    chrome: {
-      runtime: RuntimeLike;
-      storage: { local: StorageAreaLike };
-      downloads: DownloadsLike;
-    };
-  }).chrome;
+  const extensionApi = getWebExtensionNamespace<{
+    runtime: RuntimeLike;
+    storage: { local: StorageAreaLike };
+    downloads: DownloadsLike;
+  }>();
 
   return {
-    runtime: chromeLike.runtime,
-    storage: chromeLike.storage.local,
-    downloads: chromeLike.downloads,
+    runtime: extensionApi.runtime,
+    storage: extensionApi.storage.local,
+    downloads: extensionApi.downloads,
   };
 }
 
@@ -130,10 +142,65 @@ function requireArtifact(result: HeavyWorkerResult): ExportArtifact {
   return artifact;
 }
 
+function createArtifactCacheKey(captureId: string, spec: ExportSpec): string {
+  return JSON.stringify([captureId, spec]);
+}
+
+function getCachedArtifact(
+  captureId: string,
+  spec: ExportSpec,
+  sourceDataUrl: string,
+): ExportArtifact | null {
+  const cached = exportArtifactCache.get(createArtifactCacheKey(captureId, spec));
+  if (!cached || cached.sourceDataUrl !== sourceDataUrl) {
+    return null;
+  }
+
+  return cached.artifact;
+}
+
+function cacheArtifact(
+  captureId: string,
+  spec: ExportSpec,
+  sourceDataUrl: string,
+  artifact: ExportArtifact,
+): ExportArtifact {
+  exportArtifactCache.set(createArtifactCacheKey(captureId, spec), {
+    sourceDataUrl,
+    artifact,
+  });
+  return artifact;
+}
+
 async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
-  // pixel-audit: allow-local-fetch Data URLs are decoded locally and never leave the device.
-  const response = await fetch(dataUrl);
-  return response.blob();
+  const match = /^data:([^;,]+)?((?:;[^;,=]+=[^;,]+)*)(;base64)?,(.*)$/s.exec(dataUrl);
+  if (!match) {
+    throw new Error('Invalid data URL');
+  }
+
+  const mimeType = match[1] || 'application/octet-stream';
+  const isBase64 = Boolean(match[3]);
+  const payload = match[4] ?? '';
+  const decoded = isBase64 ? atob(payload) : decodeURIComponent(payload);
+  const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+  return new Blob([bytes], { type: mimeType });
+}
+
+export async function createDownloadTarget(dataUrl: string): Promise<DownloadTarget> {
+  if (!isFirefox()) {
+    return { url: dataUrl };
+  }
+
+  const blob = await dataUrlToBlob(dataUrl);
+  const objectUrl = URL.createObjectURL(blob);
+  return {
+    url: objectUrl,
+    cleanup: () => {
+      setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+      }, 30_000);
+    },
+  };
 }
 
 export async function handleApplyExportSpec(
@@ -150,7 +217,12 @@ export async function handleApplyExportSpec(
     licenseState: getLicenseState(stored),
   });
 
-  return requireArtifact(result);
+  return cacheArtifact(
+    payload.captureId,
+    payload.spec,
+    capture.dataUrl,
+    requireArtifact(result),
+  );
 }
 
 export async function handleExportDownload(
@@ -158,13 +230,21 @@ export async function handleExportDownload(
   apis: ExportApis = getApis(),
   now = new Date(),
 ): Promise<{ filename: string }> {
-  const artifact = await handleApplyExportSpec(payload, apis);
+  const capture = await requireCapture(payload.captureId);
+  const artifact =
+    getCachedArtifact(payload.captureId, payload.spec, capture.dataUrl) ??
+    (await handleApplyExportSpec(payload, apis));
   const filename = resolveFilenameTemplate(payload.spec.filenameTemplate, payload.spec.format, now);
+  const downloadTarget = await createDownloadTarget(artifact.dataUrl);
 
-  await apis.downloads.download({
-    url: artifact.dataUrl,
-    filename,
-  });
+  try {
+    await apis.downloads.download({
+      url: downloadTarget.url,
+      filename,
+    });
+  } finally {
+    downloadTarget.cleanup?.();
+  }
 
   return { filename };
 }
@@ -228,4 +308,8 @@ export function registerExportMessageHandlers(
       );
     return true;
   });
+}
+
+export function __resetExportArtifactCacheForTests(): void {
+  exportArtifactCache.clear();
 }

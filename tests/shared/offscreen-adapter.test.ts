@@ -1,22 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/shared/browser', () => ({
-  isFirefox: vi.fn(() => false),
-}));
-
 vi.mock('../../src/background/offscreen-manager', () => ({
   ensureOffscreenDocument: vi.fn(() => Promise.resolve()),
   hasNativeOffscreenSupport: vi.fn(() => true),
   resetOffscreenIdleTimer: vi.fn(),
 }));
 
+vi.mock('../../src/background/heavy-handler', () => ({
+  handleBackgroundHeavyMessage: vi.fn(async (message: { id: string }) => ({
+    type: 'OFFSCREEN_RESULT',
+    id: message.id,
+    ok: true,
+  })),
+}));
+
 import {
   __resetOffscreenAdapterForTests,
   initializeHeavyWorkerMessaging,
   sendToHeavyWorker,
-} from '../../src/shared/offscreen-adapter';
+} from '../../src/shared/heavy-worker-client.chromium';
+import { handleBackgroundHeavyMessage } from '../../src/background/heavy-handler';
 import { ensureOffscreenDocument, resetOffscreenIdleTimer } from '../../src/background/offscreen-manager';
-import { isFirefox } from '../../src/shared/browser';
 
 function createRuntimeMock() {
   const listeners: Array<
@@ -44,7 +48,6 @@ describe('sendToHeavyWorker', () => {
   beforeEach(() => {
     __resetOffscreenAdapterForTests();
     vi.clearAllMocks();
-    vi.mocked(isFirefox).mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -88,24 +91,28 @@ describe('sendToHeavyWorker', () => {
     });
   });
 
-  it('routes to the background-heavy path on firefox', async () => {
+  it('routes to the background-heavy path when native offscreen support is unavailable', async () => {
     const { runtime } = createRuntimeMock();
-    vi.mocked(isFirefox).mockReturnValue(true);
     vi.mocked(runtime.sendMessage).mockResolvedValue({
       type: 'OFFSCREEN_RESULT',
-      id: 'firefox-id',
+      id: 'fallback-id',
       ok: true,
     });
+    const { hasNativeOffscreenSupport } = await import('../../src/background/offscreen-manager');
+    vi.mocked(hasNativeOffscreenSupport).mockReturnValue(false);
 
     const result = await sendToHeavyWorker(
       { type: 'OFFSCREEN_CLEAR_MEMORY' },
       runtime,
     );
 
-    expect(ensureOffscreenDocument).not.toHaveBeenCalled();
+    expect(ensureOffscreenDocument).toHaveBeenCalledTimes(1);
+    expect(resetOffscreenIdleTimer).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(true);
-    expect(vi.mocked(runtime.sendMessage).mock.calls[0][0]).toEqual(
+    expect(runtime.sendMessage).not.toHaveBeenCalled();
+    expect(handleBackgroundHeavyMessage).toHaveBeenCalledWith(
       expect.objectContaining({
+        type: 'OFFSCREEN_CLEAR_MEMORY',
         _target: 'background-heavy',
       }),
     );

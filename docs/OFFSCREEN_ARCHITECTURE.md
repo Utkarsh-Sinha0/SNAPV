@@ -1,9 +1,10 @@
 # OFFSCREEN_ARCHITECTURE.md
 # SnapVault — Offscreen Document Architecture
-# Version: 1.0.0 | Last Updated: 2026-03-16
+# Version: 3.1.0 | Last Updated: 2026-03-17
 
-This document is the canonical reference for SnapVault's offscreen document pattern.
-All canvas, WASM, and heavy DOM work MUST route through this layer.
+This document is the canonical reference for SnapVault's heavy-worker architecture.
+On Chromium targets, heavy work runs in the offscreen document. On Firefox, the same
+shared core runs behind the background-page shell.
 
 ---
 
@@ -19,7 +20,8 @@ Chrome MV3 service workers:
 `chrome.offscreen.createDocument` (Chrome 116+) solves all of these by providing a real
 document context that is invisible to the user and isolated from extension pages.
 
-Firefox equivalent: background page (MV2). Handled by `offscreen-adapter.ts`.
+Firefox equivalent: background page (MV2). Both paths use the same shared processor in
+`src/shared/heavy-worker-service.ts`.
 
 ---
 
@@ -28,7 +30,7 @@ Firefox equivalent: background page (MV2). Handled by `offscreen-adapter.ts`.
 ### Create (idempotent)
 ```ts
 // src/background/offscreen-manager.ts
-const OFFSCREEN_URL = chrome.runtime.getURL('offscreen/offscreen.html');
+const OFFSCREEN_URL = chrome.runtime.getURL('offscreen.html');
 
 export async function ensureOffscreenDocument(): Promise<void> {
   const existing = await chrome.offscreen.hasDocument?.() ?? false;
@@ -77,60 +79,34 @@ All messages follow the standard SnapVault typed message contract.
 The offscreen document listens via `chrome.runtime.onMessage` and replies via
 `chrome.runtime.sendMessage` (or the resolved promise pattern).
 
-### Offscreen-specific message types (subset — full list in API_SPECIFICATIONS.md §5)
+### Heavy-worker message types (subset — full list in API_SPECIFICATIONS.md §5)
 
 | Message | Direction | Payload |
 |---------|-----------|---------|
-| `OFFSCREEN_STITCH` | SW → offscreen | `{ segments: string[], metadata: CaptureMetadata, spec: ExportSpec }` |
-| `OFFSCREEN_ENCODE` | SW → offscreen | `{ dataUrl: string, spec: ExportSpec }` |
-| `OFFSCREEN_BUILD_PDF` | SW → offscreen | `{ pages: string[], spec: ExportSpec }` |
-| `OFFSCREEN_REDACT` | SW → offscreen | `{ dataUrl: string, annotations: RedactAnnotation[] }` |
-| `OFFSCREEN_RUN_ML_REDACTION` | SW → offscreen | `{ dataUrl: string }` |
-| `OFFSCREEN_CLEAR_MEMORY` | SW → offscreen | `{}` |
-| `OFFSCREEN_RESULT` | offscreen → SW | `{ id: string, ok: boolean, dataUrl?: string, error?: string }` |
+| `OFFSCREEN_STITCH` | SW → heavy worker | `{ id: string, segments: string[], metadata: CaptureMetadata, spec: ExportSpec }` |
+| `OFFSCREEN_ENCODE` | SW → heavy worker | `{ id: string, dataUrl: string, spec: ExportSpec }` |
+| `OFFSCREEN_BUILD_PDF` | SW → heavy worker | `{ id: string, pages: string[], spec: ExportSpec }` |
+| `OFFSCREEN_RUN_ML_REDACTION` | SW → heavy worker | `{ id: string, dataUrl: string }` |
+| `OFFSCREEN_CLEAR_MEMORY` | SW → heavy worker | `{ id: string }` |
+| `OFFSCREEN_RESULT` | heavy worker → SW | `{ id: string, ok: boolean, data?: unknown, error?: string }` |
 
 ---
 
-## 4) offscreen.ts structure
+## 4) Chromium offscreen runtime structure
 
 ```ts
-// src/offscreen/offscreen.ts
-import { stitchSegments } from '../shared/stitch';
-import { encodeJpeg } from '../shared/encode';
-import { buildPdf } from '../shared/pdf';
-import { applyRedactAnnotations } from '../shared/redact';
+// src/offscreen/runtime.chromium.ts
+import { processHeavyWorkerMessage } from '../shared/heavy-worker-service.lazy';
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  switch (msg.type) {
-    case 'OFFSCREEN_STITCH':
-      handleStitch(msg).then(sendResponse);
-      return true; // keep channel open for async
-
-    case 'OFFSCREEN_ENCODE':
-      handleEncode(msg).then(sendResponse);
-      return true;
-
-    case 'OFFSCREEN_BUILD_PDF':
-      handlePdf(msg).then(sendResponse);
-      return true;
-
-    case 'OFFSCREEN_REDACT':
-      handleRedact(msg).then(sendResponse);
-      return true;
-
-    case 'OFFSCREEN_RUN_ML_REDACTION':
-      // Lazy-load Transformers.js on first call
-      import('./ml-redaction').then(m => m.runMlRedaction(msg)).then(sendResponse);
-      return true;
-
-    case 'OFFSCREEN_CLEAR_MEMORY':
-      // Release any held references, close open ImageBitmap handles
-      globalImageCache.clear();
-      sendResponse({ ok: true });
-      break;
-  }
+  return routeToSharedHeavyWorkerCore(msg, sendResponse);
 });
 ```
+
+The listener stays in the Chromium runtime shell, but the actual stitch/encode/PDF/ML
+implementation lives in `src/shared/heavy-worker-service.ts` and
+`src/shared/heavy-worker-service.lazy.ts` so Chromium offscreen and Firefox background
+shells execute the same neutral core.
 
 ---
 
@@ -179,7 +155,8 @@ export async function sendToHeavyWorker<T>(msg: OffscreenMessage): Promise<T> {
 ```
 
 Background page (`background/background-page.ts`) mirrors the same message handlers
-for Firefox. Same TypeScript modules; no logic duplication.
+for Firefox by calling the same shared heavy-worker core. Same TypeScript modules;
+no logic duplication.
 
 ---
 
@@ -187,7 +164,7 @@ for Firefox. Same TypeScript modules; no logic duplication.
 
 - Offscreen document is NEVER shown to the user (no UI context).
 - It must NOT receive or store screenshot data beyond the lifetime of one message.
-- `assertNoPixelPayload` is called before any `fetch` inside offscreen.ts — even though
+- `assertNoPixelPayload` is called before any `fetch` inside the heavy-worker path — even though
   offscreen should never make network calls, this is a belt-and-suspenders guard.
 - ONNX model loaded from `chrome.runtime.getURL('assets/ml/...')` — local only, never CDN.
 - Offscreen page has the same strict MV3 CSP as all other extension pages: `script-src 'self'`.

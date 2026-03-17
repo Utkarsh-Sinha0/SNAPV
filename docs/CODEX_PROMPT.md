@@ -25,7 +25,7 @@ and pixel tools including local ML redaction.
 5. **Cross-browser from launch day:** Chrome + Firefox + Edge via WXT cross-browser build.
    `offscreen-adapter.ts` handles the Chrome/Firefox routing difference transparently.
 
-6. ML model (`src/assets/ml/redaction.onnx`) is local-only.
+6. ML payload (`public/assets/ml/redaction/` + `public/assets/ml/wasm/`) is local-only.
    `env.allowRemoteModels = false` is mandatory and CI-tested.
 
 7. Ads (Carbon or `sponsor.json` card) are allowed **only** via sandboxed iframe in
@@ -46,8 +46,9 @@ and pixel tools including local ML redaction.
 7. `docs/API_SPECIFICATIONS.md`
 8. `docs/MONETIZATION_STRATEGY.md`
 9. `docs/TESTING_QA.md`
-10. `docs/DEPLOYMENT.md`
-11. `docs/AGENTS.md`
+10. `docs/PERFORMANCE_STARTUP.md`
+11. `docs/DEPLOYMENT.md`
+12. `docs/AGENTS.md`
 
 ---
 
@@ -77,7 +78,7 @@ src/
   ads_sandbox/
   shared/          (pure TS — types, feasibility, dpi, stitch, encode, pdf, redact,
                    browser adapter, offscreen-adapter, assertNoPixelPayload)
-  assets/ml/       (ONNX model weights — local, bundled)
+  public/assets/ml/ (bundled ONNX model + ORT WASM payload)
 tests/             e2e/             test_pages/
 services/licensing/
 docs/
@@ -171,9 +172,11 @@ preset library + naming templates.
 ## 8) DONE CHECKLIST
 
 - [ ] All Vitest tests pass.
-- [ ] All Playwright e2e tests pass (Chromium + Firefox).
+- [ ] Playwright extension e2e tests pass (Chromium + Edge).
 - [ ] `npm run build:chrome` passes, zero TS errors.
+- [ ] `npm run build:edge` passes, zero TS errors.
 - [ ] `npm run build:firefox` passes, zero TS errors.
+- [ ] `npm run test:firefox:package` passes.
 - [ ] No pixel data over network (static audit + runtime Playwright intercept).
 - [ ] `env.allowRemoteModels = false` verified in CI.
 - [ ] Ads/sponsor only in sandbox iframe.

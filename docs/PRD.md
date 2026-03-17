@@ -106,7 +106,10 @@ Chrome, Firefox, and Edge on launch day.
      regex patterns — displayed as local blur annotations for manual review.
    - **V1.1 (Pro launch feature):** Transformers.js ONNX model bundled with extension.
      Detects faces, logos, layout-aware sensitive text blocks, ~95% accuracy, 100% offline.
-     Model is lazy-loaded on first use (WASM/ONNX, < 5 MB compressed).
+     Model is lazy-loaded on first use (WASM/ONNX, bundled locally with the extension).
+     Product decision: keep the model bundled in v1.0 for a simple offline/privacy story;
+     evaluate optional post-install delivery in v1.1 only if startup/install data proves the
+     bundled payload is materially hurting activation on low-end devices.
      See `ML_REDACTION.md` for full spec.
    - Detections are ephemeral: never persisted, never sent anywhere.
 

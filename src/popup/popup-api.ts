@@ -1,4 +1,5 @@
 import { getDefaultExportSpec, validateExportSpec } from '../shared/export-spec';
+import { getWebExtensionNamespace } from '../shared/webextension-namespace';
 import type {
   CaptureMetadata,
   ExportSpec,
@@ -52,21 +53,28 @@ const POPUP_EXPORT_SPEC_KEY = 'popup.exportSpec';
 const FALLBACK_FILENAME_TEMPLATE = 'snapvault-{date}-{time}.{format}';
 const LICENSE_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+function unwrapRuntimeResponse<T>(response: unknown): T {
+  if (typeof response === 'object' && response !== null && '__error__' in response) {
+    const error = (response as { __error__?: unknown }).__error__;
+    throw new Error(typeof error === 'string' ? error : 'Extension request failed');
+  }
+
+  return response as T;
+}
+
 function getChromeApis(): PopupApis {
-  const chromeLike = (globalThis as unknown as {
-    chrome: {
-      runtime: RuntimeLike;
-      storage: { local: StorageAreaLike };
-      tabs: TabsLike;
-      scripting: ScriptingLike;
-    };
-  }).chrome;
+  const extensionApi = getWebExtensionNamespace<{
+    runtime: RuntimeLike;
+    storage: { local: StorageAreaLike };
+    tabs: TabsLike;
+    scripting: ScriptingLike;
+  }>();
 
   return {
-    runtime: chromeLike.runtime,
-    storage: chromeLike.storage.local,
-    tabs: chromeLike.tabs,
-    scripting: chromeLike.scripting,
+    runtime: extensionApi.runtime,
+    storage: extensionApi.storage.local,
+    tabs: extensionApi.tabs,
+    scripting: extensionApi.scripting,
   };
 }
 
@@ -139,9 +147,11 @@ export async function syncLicenseIfStale(
     return null;
   }
 
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'SYNC_LICENSE',
-  }) as Promise<LicenseState>;
+  });
+
+  return unwrapRuntimeResponse<LicenseState>(response);
 }
 
 export async function getActiveTabId(
@@ -192,11 +202,13 @@ export async function requestFeasibility(
   metadata: CaptureMetadata,
   apis: PopupApis = getChromeApis(),
 ): Promise<FeasibilityResult> {
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'CHECK_FEASIBILITY',
     spec,
     metadata,
-  }) as Promise<FeasibilityResult>;
+  });
+
+  return unwrapRuntimeResponse<FeasibilityResult>(response);
 }
 
 function buildViewportRect(metadata: CaptureMetadata) {
@@ -214,30 +226,36 @@ export async function runCapture(
   spec: ExportSpec,
   metadata: CaptureMetadata,
   apis: PopupApis = getChromeApis(),
-): Promise<{ captureId: string }> {
+): Promise<{ captureId?: string; pending?: boolean }> {
   if (command === 'CAPTURE_VISIBLE') {
-    return apis.runtime.sendMessage({
+    const response = await apis.runtime.sendMessage({
       type: 'CAPTURE_VISIBLE',
       tabId,
       spec,
-    }) as Promise<{ captureId: string }>;
+    });
+
+    return unwrapRuntimeResponse<{ captureId: string }>(response);
   }
 
   if (command === 'CAPTURE_FULLPAGE') {
-    return apis.runtime.sendMessage({
+    const response = await apis.runtime.sendMessage({
       type: 'CAPTURE_FULLPAGE',
       tabId,
       spec,
       lightMode: spec.lightMode,
-    }) as Promise<{ captureId: string }>;
+    });
+
+    return unwrapRuntimeResponse<{ captureId: string }>(response);
   }
 
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'CAPTURE_REGION',
     tabId,
-    rect: buildViewportRect(metadata),
     spec,
-  }) as Promise<{ captureId: string }>;
+    viewportRect: buildViewportRect(metadata),
+  });
+
+  return unwrapRuntimeResponse<{ captureId?: string; pending?: boolean }>(response);
 }
 
 export async function exportToClipboard(
@@ -245,11 +263,13 @@ export async function exportToClipboard(
   spec: ExportSpec,
   apis: PopupApis = getChromeApis(),
 ): Promise<void> {
-  await apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'EXPORT_CLIPBOARD',
     captureId,
     spec,
   });
+
+  unwrapRuntimeResponse(response);
 }
 
 export async function exportToDownloads(
@@ -257,11 +277,13 @@ export async function exportToDownloads(
   spec: ExportSpec,
   apis: PopupApis = getChromeApis(),
 ): Promise<{ filename: string }> {
-  return apis.runtime.sendMessage({
+  const response = await apis.runtime.sendMessage({
     type: 'EXPORT_DOWNLOAD',
     captureId,
     spec,
-  }) as Promise<{ filename: string }>;
+  });
+
+  return unwrapRuntimeResponse<{ filename: string }>(response);
 }
 
 export async function openEditor(

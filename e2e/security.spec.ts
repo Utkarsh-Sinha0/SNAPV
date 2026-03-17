@@ -61,3 +61,22 @@ test('ml redaction emits zero network requests', async ({
 
   expect(stopLogging()).toEqual([]);
 });
+
+test('ads stay isolated to the sandbox iframe and never appear in the popup DOM', async ({
+  createPopupPage,
+  extensionPage,
+  getTargetTabId,
+  targetPage,
+}) => {
+  await targetPage.bringToFront();
+  const targetTabId = await getTargetTabId();
+  const popup = await createPopupPage(targetTabId);
+
+  const sponsorFrame = extensionPage.getByTitle('Sponsor slot');
+  await expect(sponsorFrame).toBeVisible();
+  await expect(sponsorFrame).toHaveAttribute('sandbox', /allow-scripts allow-popups/);
+  await expect(sponsorFrame).toHaveAttribute('src', /ads_sandbox\.html$/);
+
+  await expect(popup.locator('iframe')).toHaveCount(0);
+  await popup.close();
+});

@@ -38,7 +38,7 @@ matches the spec with feasibility warnings. Presets are shareable as local JSON 
 - Ads must be sandbox-isolated and never receive screenshot data.
 - All canvas / WASM / heavy DOM work routes through `offscreen.html` (Chrome/Edge) or
   background page (Firefox) — never directly in the service worker.
-- ML model weights (`src/assets/ml/`) are bundled locally; `env.allowRemoteModels = false`.
+- ML model weights (`public/assets/ml/`) are bundled locally; `env.allowRemoteModels = false`.
 - **Cross-browser from launch day:** Chrome + Firefox + Edge via WXT cross-browser build.
   Two-line config in `wxt.config.ts`; no feature-contract changes required.
 - Recent captures auto-expire after 7 days (default). "Nuke everything" clears captures
@@ -129,6 +129,17 @@ matches the spec with feasibility warnings. Presets are shareable as local JSON 
 📌 [NEW RULE — WXT cross-browser target (`TARGET_BROWSER`) must be set in all build and
    CI commands. Default to `chrome` if unset. Firefox uses MV2 manifest; Chrome/Edge use
    MV3. Same source code; WXT handles manifest delta.]
+
+✅ [SUCCESSFUL PATTERN — When Transformers.js is pinned to the plain `wasm` execution
+   provider, override `env.backends.onnx.wasm.wasmPaths` to the non-JSEP
+   `ort-wasm-simd-threaded.{mjs,wasm}` pair to cut extension payload size without
+   relaxing the local-only ML contract.]
+
+📌 [NEW RULE — Track service-worker cold-start in the real extension harness. Popup load
+   time is not enough; low-end devices feel background startup regressions first.]
+
+✅ [SUCCESSFUL PATTERN — Lazy-load `pdf-lib` and ML/offscreen helpers from the heavy worker
+   paths so PNG/JPEG-first workflows do not pay those parse costs up front.]
 
 ---
 

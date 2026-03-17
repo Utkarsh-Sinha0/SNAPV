@@ -1,5 +1,6 @@
 import { nukeOffscreenMemory } from './offscreen-manager';
 import { sendToHeavyWorker } from '../shared/offscreen-adapter';
+import { getWebExtensionNamespace } from '../shared/webextension-namespace';
 import type {
   CaptureMetadata,
   CaptureRecord,
@@ -53,22 +54,22 @@ type CaptureApis = {
 
 const inMemoryCaptureCache = new Map<string, CaptureRecord>();
 const CAPTURE_VISIBLE_TAB_DELAY_MS = 550;
+const CONTENT_SCRIPT_ENTRY_PATH = 'content-scripts/content.js';
+const CONTENT_SCRIPT_READY_KEY = '__snapvaultContentScriptReady';
 
 function getApis(): CaptureApis {
-  const chromeLike = (globalThis as unknown as {
-    chrome: {
-      runtime: RuntimeLike;
-      storage: { local: StorageAreaLike };
-      tabs: TabsLike;
-      scripting: ScriptingLike;
-    };
-  }).chrome;
+  const extensionApi = getWebExtensionNamespace<{
+    runtime: RuntimeLike;
+    storage: { local: StorageAreaLike };
+    tabs: TabsLike;
+    scripting: ScriptingLike;
+  }>();
 
   return {
-    runtime: chromeLike.runtime,
-    storage: chromeLike.storage.local,
-    tabs: chromeLike.tabs,
-    scripting: chromeLike.scripting,
+    runtime: extensionApi.runtime,
+    storage: extensionApi.storage.local,
+    tabs: extensionApi.tabs,
+    scripting: extensionApi.scripting,
   };
 }
 
@@ -86,12 +87,39 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+export async function ensureTabContentScript(
+  tabId: number,
+  apis: CaptureApis,
+): Promise<void> {
+  const scriptUrl = apis.runtime.getURL?.(CONTENT_SCRIPT_ENTRY_PATH);
+  if (!scriptUrl) {
+    return;
+  }
+
+  await apis.scripting.executeScript({
+    target: { tabId },
+    func: async (entryUrl, readyKey) => {
+      const globalState = globalThis as typeof globalThis & Record<string, unknown>;
+      const marker = readyKey as string;
+
+      if (globalState[marker]) {
+        return;
+      }
+
+      await import(entryUrl as string);
+      globalState[marker] = true;
+    },
+    args: [scriptUrl, CONTENT_SCRIPT_READY_KEY],
+  });
+}
+
 async function sendTabMessageSafe(
   tabId: number,
   message: unknown,
   apis: CaptureApis,
 ): Promise<void> {
   try {
+    await ensureTabContentScript(tabId, apis);
     await apis.tabs.sendMessage(tabId, message);
   } catch {
     // Ignore missing content script or transient tab messaging failures.
@@ -324,9 +352,26 @@ export async function handleCaptureVisible(
 }
 
 export async function handleCaptureRegion(
-  payload: { tabId: number; rect: RectLike; spec: ExportSpec },
+  payload: {
+    tabId: number;
+    rect?: RectLike;
+    spec: ExportSpec;
+    viewportRect?: RectLike;
+  },
   apis: CaptureApis = getApis(),
-): Promise<{ captureId: string }> {
+): Promise<{ captureId?: string; pending?: boolean }> {
+  if (!payload.rect) {
+    await ensureTabContentScript(payload.tabId, apis);
+    await apis.tabs.sendMessage(payload.tabId, {
+      type: 'CAPTURE_REGION',
+      tabId: payload.tabId,
+      spec: payload.spec,
+      ...(payload.viewportRect ? { viewportRect: payload.viewportRect } : {}),
+    });
+
+    return { pending: true };
+  }
+
   await sendTabMessageSafe(payload.tabId, {
     type: 'CONFIRM_CAPTURE_REGION',
     rect: payload.rect,
@@ -406,14 +451,14 @@ export async function handleRecapture(
   }
 
   if (payload.captureMode === 'region' && payload.spec) {
-    await sendTabMessageSafe(
+    await ensureTabContentScript(payload.tabId, apis);
+    await apis.tabs.sendMessage(
       payload.tabId,
       {
         type: 'CAPTURE_REGION',
         tabId: payload.tabId,
         spec: payload.spec,
       },
-      apis,
     );
   }
 
