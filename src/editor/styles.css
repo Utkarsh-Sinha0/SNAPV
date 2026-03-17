@@ -1,0 +1,205 @@
+.editor-shell {
+  min-height: 100vh;
+  margin: 0;
+  padding: 24px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 36%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  color: #0f172a;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.editor-hero,
+.editor-panel {
+  width: min(1080px, 100%);
+  margin: 0 auto 20px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.editor-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.editor-hero h1,
+.editor-panel h2 {
+  margin: 0;
+}
+
+.editor-panel {
+  padding: 20px 24px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toolbar-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tool-button,
+.export-button {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.18s ease, background-color 0.18s ease;
+}
+
+.tool-button {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.tool-button.active {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.export-button {
+  background: #2563eb;
+  color: white;
+}
+
+.tool-button:hover,
+.export-button:hover {
+  transform: translateY(-1px);
+}
+
+.tool-button:disabled,
+.export-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+
+.editor-stage {
+  position: relative;
+  overflow: auto;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #dbeafe, #f8fafc);
+  padding: 16px;
+}
+
+.editor-stage canvas {
+  display: block;
+  max-width: 100%;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.12);
+}
+
+.board-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.board-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.92));
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
+  cursor: grab;
+}
+
+.board-card canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  background: white;
+}
+
+.board-card-label {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.annotation-textarea {
+  position: absolute;
+  min-width: 180px;
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 2px solid #2563eb;
+  border-radius: 10px;
+  resize: both;
+  font: inherit;
+}
+
+.editor-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  color: #334155;
+}
+
+@media (max-width: 720px) {
+  .editor-shell {
+    padding: 16px;
+  }
+
+  .editor-hero,
+  .editor-panel {
+    width: 100%;
+  }
+
+  .editor-hero,
+  .section-header,
+  .editor-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .editor-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .export-button {
+    width: 100%;
+  }
+
+  .editor-actions .tool-button,
+  .editor-actions .export-button {
+    width: 100%;
+  }
+}

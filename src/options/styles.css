@@ -1,0 +1,155 @@
+.options-shell {
+  min-height: 100vh;
+  margin: 0;
+  padding: 24px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.18), transparent 34%),
+    linear-gradient(180deg, #f8fafc 0%, #ecfeff 100%);
+  color: #0f172a;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.options-hero,
+.options-panel {
+  width: min(980px, 100%);
+  margin: 0 auto 20px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.options-hero,
+.options-panel {
+  padding: 20px 24px;
+}
+
+.options-hero h1,
+.options-panel h2 {
+  margin: 0;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.field-inline {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.helper-copy,
+.status-copy {
+  margin: 8px 0 0;
+  color: #475569;
+}
+
+.danger-button,
+.preset-actions button,
+.preset-card button {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.danger-button {
+  background: #b91c1c;
+  color: white;
+}
+
+.preset-actions button,
+.preset-card button {
+  background: #0f172a;
+  color: white;
+}
+
+.preset-actions {
+  margin-bottom: 16px;
+}
+
+.preset-list {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.preset-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.preset-name {
+  margin: 0;
+  font-weight: 700;
+}
+
+.sponsor-frame {
+  width: 100%;
+  min-height: 180px;
+  border: 0;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.error-message {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .options-shell {
+    padding: 16px;
+  }
+
+  .options-hero,
+  .options-panel {
+    width: 100%;
+  }
+
+  .section-header,
+  .preset-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

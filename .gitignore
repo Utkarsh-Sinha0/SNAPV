@@ -1,0 +1,10 @@
+env/
+node_modules/
+dist/
+.wxt/
+__wxt_tmp/
+__wxt_preact_tmp/
+__pycache__/
+*.pyc
+services/licensing/data/
+output/

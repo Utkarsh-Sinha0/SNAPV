@@ -1,0 +1,45 @@
+{
+  "name": "snapvault",
+  "description": "Local-first browser capture extension for Chrome and Firefox.",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "wxt",
+    "dev:chrome": "wxt -b chrome",
+    "dev:firefox": "cross-env TARGET_BROWSER=firefox wxt -b firefox",
+    "build": "node scripts/build-target.mjs",
+    "build:chrome": "cross-env TARGET_BROWSER=chrome node scripts/build-target.mjs",
+    "build:firefox": "cross-env TARGET_BROWSER=firefox node scripts/build-target.mjs",
+    "licensing:dev": "node services/licensing/server.mjs",
+    "test:audit:pixel-payload": "node scripts/audit-pixel-payload.mjs",
+    "test:e2e:extension": "cross-env SNAPVAULT_E2E=1 npm run build:chrome && cross-env SNAPVAULT_E2E=1 playwright test -c e2e/playwright.extension.config.ts",
+    "test:e2e:extension:chrome": "cross-env SNAPVAULT_E2E=1 npm run build:chrome && cross-env SNAPVAULT_E2E=1 playwright test -c e2e/playwright.extension.config.ts --project=chromium-extension --project=chromium-extension-hidpi",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "validate:artifacts": "node scripts/validate-build-artifacts.mjs",
+    "zip": "wxt zip",
+    "zip:chrome": "cross-env TARGET_BROWSER=chrome wxt zip -b chrome",
+    "zip:firefox": "cross-env TARGET_BROWSER=firefox wxt zip -b firefox",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2",
+    "cross-env": "^10.0.0",
+    "happy-dom": "^20.0.1",
+    "pdf-lib": "^1.17.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wxt": "0.20.19"
+  },
+  "dependencies": {
+    "@testing-library/preact": "^3.2.4",
+    "@testing-library/user-event": "^14.6.1",
+    "preact": "^10.29.0",
+    "stripe": "^18.4.0"
+  }
+}
